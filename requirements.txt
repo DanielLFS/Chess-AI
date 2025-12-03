@@ -1,0 +1,35 @@
+# Core Dependencies
+sqlalchemy>=2.0.0
+pyyaml>=6.0
+numpy>=1.24.0
+numba>=0.58.0
+
+# Web Framework (Flask for web interface)
+flask>=3.0.0
+flask-cors>=4.0.0
+flask-socketio>=5.3.0
+
+# Database
+alembic>=1.12.0  # Database migrations
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Development Tools
+black>=23.0.0  # Code formatting
+flake8>=6.0.0  # Linting
+mypy>=1.5.0  # Type checking
+
+# Optional: For potential C++ extensions
+# cffi>=1.15.0
+# pybind11>=2.11.0
+
+# Optional: For advanced visualization
+# matplotlib>=3.7.0
+# plotly>=5.17.0
+# pandas>=2.1.0
+
+# Optional: For Jupyter notebooks (analysis)
+# jupyter>=1.0.0
+# ipykernel>=6.25.0

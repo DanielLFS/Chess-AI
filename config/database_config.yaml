@@ -1,0 +1,49 @@
+# Database Configuration
+
+# Database Connection
+database:
+  type: sqlite              # sqlite, postgresql, mysql
+  name: chess_ai.db
+  path: ./data/             # For SQLite
+  
+  # For PostgreSQL/MySQL (uncomment if needed)
+  # host: localhost
+  # port: 5432
+  # username: chess_user
+  # password: your_password
+
+# Connection Pool
+connection_pool:
+  pool_size: 5
+  max_overflow: 10
+  pool_timeout: 30
+
+# Performance
+performance:
+  enable_query_cache: true
+  cache_ttl_seconds: 300
+  batch_insert_size: 100
+
+# Logging
+logging:
+  log_queries: false
+  slow_query_threshold_ms: 1000
+
+# Data Retention
+retention:
+  keep_all_games: true
+  cleanup_old_positions_days: 90
+  max_cached_positions: 10000
+
+# Backup
+backup:
+  enable_auto_backup: true
+  backup_interval_hours: 24
+  backup_directory: ./backups/
+  keep_backups: 7
+
+# Analytics
+analytics:
+  enable_real_time_stats: true
+  update_opening_stats: true
+  track_search_metrics: true
