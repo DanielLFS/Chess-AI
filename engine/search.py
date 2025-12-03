@@ -8,6 +8,22 @@ from typing import Optional, Tuple, List
 from engine.board import Board, Move, Color
 from engine.moves import MoveGenerator
 from engine.evaluation import Evaluator
+import numpy as np
+from numba import njit
+
+
+@njit(cache=True)
+def _hash_position(piece_array, color_array):
+    """Fast JIT-compiled position hash using numpy arrays."""
+    # Simple but fast hash: combine piece and color arrays
+    # Multiply piece_array by 10 and add color_array for unique representation
+    combined = piece_array * 10 + (color_array + 1)  # +1 to make all values positive
+    # Use numpy sum with position weights for hash
+    hash_val = 0
+    for row in range(8):
+        for col in range(8):
+            hash_val = hash_val * 31 + combined[row, col]
+    return hash_val
 
 
 class SearchStats:
@@ -55,6 +71,9 @@ class ChessEngine:
     CHECKMATE_SCORE = 100000
     STALEMATE_SCORE = 0
     
+    # Pre-computed piece values array for fast move ordering (index matches board piece_array)
+    PIECE_VALUES_ARRAY = np.array([0, 100, 320, 330, 500, 900, 20000], dtype=np.int32)
+    
     def __init__(self, max_depth: int = 4, use_iterative_deepening: bool = True,
                  use_quiescence: bool = False, max_nodes: int = None):
         """
@@ -81,7 +100,7 @@ class ChessEngine:
         # Killer moves (depth -> [move1, move2])
         self.killer_moves = {}
         
-        # Evaluation cache (FEN -> score) - simple caching
+        # Evaluation cache (position_hash -> score) - fast hash-based caching
         self.eval_cache = {}
     
     def find_best_move(self, board: Board, time_limit: Optional[float] = None) -> Tuple[Move, float]:
@@ -99,14 +118,20 @@ class ChessEngine:
         # Clear eval cache to prevent memory issues (keep transposition table)
         self.eval_cache.clear()
         
+        # Disable history tracking during search for performance
+        original_track_history = board.track_history
+        board.track_history = False
+        
         move_gen = MoveGenerator(board)
         legal_moves = move_gen.generate_legal_moves()
         
         if not legal_moves:
+            board.track_history = original_track_history
             return None, 0
         
         if len(legal_moves) == 1:
             # Only one legal move, return it immediately
+            board.track_history = original_track_history
             return legal_moves[0], 0
         
         best_move = None
@@ -133,6 +158,9 @@ class ChessEngine:
             self.stats.depth_reached = self.max_depth
             best_move, best_score = self._search_depth(board, self.max_depth, legal_moves)
         
+        # Restore history tracking
+        board.track_history = original_track_history
+        
         return best_move, best_score
     
     def _search_depth(self, board: Board, depth: int, moves: List[Move]) -> Tuple[Move, float]:
@@ -158,11 +186,13 @@ class ChessEngine:
                 break
             
             # Make move
-            board_copy = board.copy()
-            board_copy.make_move(move)
+            board.make_move(move)
             
             # Search this move
-            score = self._alpha_beta(board_copy, depth - 1, alpha, beta, not is_maximizing)
+            score = self._alpha_beta(board, depth - 1, alpha, beta, not is_maximizing)
+            
+            # Unmake move
+            board.unmake_move(move)
             
             # Update best move
             if is_maximizing:
@@ -201,8 +231,8 @@ class ChessEngine:
             self.should_stop = True
             return 0
         
-        # Check time limit only every 1000 nodes for performance
-        if self.time_limit and self.stats.nodes_searched % 1000 == 0:
+        # Check time limit more frequently (every 100 nodes instead of 1000)
+        if self.time_limit and self.stats.nodes_searched % 100 == 0:
             if (time.time() - self.stats.start_time) > self.time_limit:
                 self.should_stop = True
                 return 0
@@ -214,13 +244,13 @@ class ChessEngine:
             else:
                 self.stats.positions_evaluated += 1
                 
-                # Check evaluation cache
-                fen = board.to_fen()
-                if fen in self.eval_cache:
-                    score = self.eval_cache[fen]
+                # Check evaluation cache using fast hash
+                pos_hash = _hash_position(board.piece_array, board.color_array)
+                if pos_hash in self.eval_cache:
+                    score = self.eval_cache[pos_hash]
                 else:
                     score = self.evaluator.evaluate(board)
-                    self.eval_cache[fen] = score
+                    self.eval_cache[pos_hash] = score
                 
                 # Evaluator returns from Black's perspective (positive = good for Black)
                 # When White is maximizing, we need to negate it
@@ -251,9 +281,9 @@ class ChessEngine:
         if is_maximizing:
             max_score = float('-inf')
             for move in legal_moves:
-                board_copy = board.copy()
-                board_copy.make_move(move)
-                score = self._alpha_beta(board_copy, depth - 1, alpha, beta, False)
+                board.make_move(move)
+                score = self._alpha_beta(board, depth - 1, alpha, beta, False)
+                board.unmake_move(move)
                 max_score = max(max_score, score)
                 alpha = max(alpha, score)
                 
@@ -266,9 +296,9 @@ class ChessEngine:
         else:
             min_score = float('inf')
             for move in legal_moves:
-                board_copy = board.copy()
-                board_copy.make_move(move)
-                score = self._alpha_beta(board_copy, depth - 1, alpha, beta, True)
+                board.make_move(move)
+                score = self._alpha_beta(board, depth - 1, alpha, beta, True)
+                board.unmake_move(move)
                 min_score = min(min_score, score)
                 beta = min(beta, score)
                 
@@ -326,9 +356,9 @@ class ChessEngine:
         if is_maximizing:
             max_score = stand_pat
             for move in tactical_moves:
-                board_copy = board.copy()
-                board_copy.make_move(move)
-                score = self._quiescence_search(board_copy, alpha, beta, False, max_depth - 1)
+                board.make_move(move)
+                score = self._quiescence_search(board, alpha, beta, False, max_depth - 1)
+                board.unmake_move(move)
                 max_score = max(max_score, score)
                 alpha = max(alpha, score)
                 
@@ -339,9 +369,9 @@ class ChessEngine:
         else:
             min_score = stand_pat
             for move in tactical_moves:
-                board_copy = board.copy()
-                board_copy.make_move(move)
-                score = self._quiescence_search(board_copy, alpha, beta, True, max_depth - 1)
+                board.make_move(move)
+                score = self._quiescence_search(board, alpha, beta, True, max_depth - 1)
+                board.unmake_move(move)
                 min_score = min(min_score, score)
                 beta = min(beta, score)
                 
