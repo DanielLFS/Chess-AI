@@ -93,7 +93,7 @@ def pop_count(bb: np.uint64) -> int:
     count = 0
     while bb:
         count += 1
-        bb &= bb - 1
+        bb &= bb - np.uint64(1)
     return count
 
 @njit(cache=True)
@@ -377,6 +377,9 @@ def create_initial_state() -> np.ndarray:
     # Metadata: all castling, no ep, halfmove=0, white to move
     state[META] = pack_metadata(CASTLE_ALL, -1, 0, Color.WHITE)
     
+    # Compute Zobrist hash
+    state[HASH] = compute_zobrist_hash(state)
+    
     return state
 
 @njit(cache=True)
@@ -416,13 +419,16 @@ def make_move_numba(state: np.ndarray, move: np.uint16) -> np.ndarray:
     from_sq, to_sq, flags = decode_move(move)
     piece_type, color = get_piece_at(state, from_sq)
     
-    # Save undo info
+    # Save undo info (including old hash)
     undo_info = np.array([
         state[META],  # Old metadata
         -1,  # Captured piece type
         -1,  # Captured color
-        0    # Reserved
+        state[HASH]  # Old hash
     ], dtype=np.int64)
+    
+    # Start with current hash
+    hash_val = np.uint64(state[HASH])
     
     # Get piece bitboard index
     piece_idx = piece_type if color == 0 else piece_type + 6
@@ -434,6 +440,8 @@ def make_move_numba(state: np.ndarray, move: np.uint16) -> np.ndarray:
         undo_info[2] = cap_color
         cap_idx = cap_type if cap_color == 0 else cap_type + 6
         state[cap_idx] = clear_bit(state[cap_idx], to_sq)
+        # Update hash: remove captured piece
+        hash_val = update_hash_piece_remove(hash_val, cap_idx, to_sq)
     
     # Get current metadata
     castling = unpack_castling(state[META])
@@ -446,47 +454,56 @@ def make_move_numba(state: np.ndarray, move: np.uint16) -> np.ndarray:
         # King
         state[piece_idx] = clear_bit(state[piece_idx], from_sq)
         state[piece_idx] = set_bit(state[piece_idx], to_sq)
+        hash_val = update_hash_piece_move(hash_val, piece_idx, from_sq, to_sq)
         # Rook
         rook_idx = WR if color == 0 else BR
         rook_from = H1 if color == 0 else H8
         rook_to = F1 if color == 0 else F8
         state[rook_idx] = clear_bit(state[rook_idx], rook_from)
         state[rook_idx] = set_bit(state[rook_idx], rook_to)
+        hash_val = update_hash_piece_move(hash_val, rook_idx, rook_from, rook_to)
     
     elif flags == FLAG_CASTLING_QUEENSIDE:
         # King
         state[piece_idx] = clear_bit(state[piece_idx], from_sq)
         state[piece_idx] = set_bit(state[piece_idx], to_sq)
+        hash_val = update_hash_piece_move(hash_val, piece_idx, from_sq, to_sq)
         # Rook
         rook_idx = WR if color == 0 else BR
         rook_from = A1 if color == 0 else A8
         rook_to = D1 if color == 0 else D8
         state[rook_idx] = clear_bit(state[rook_idx], rook_from)
         state[rook_idx] = set_bit(state[rook_idx], rook_to)
+        hash_val = update_hash_piece_move(hash_val, rook_idx, rook_from, rook_to)
     
     elif flags == FLAG_EN_PASSANT:
         # Move pawn
         state[piece_idx] = clear_bit(state[piece_idx], from_sq)
         state[piece_idx] = set_bit(state[piece_idx], to_sq)
+        hash_val = update_hash_piece_move(hash_val, piece_idx, from_sq, to_sq)
         # Capture en passant pawn
         ep_capture_sq = ep_square + 8 if color == 0 else ep_square - 8
         ep_pawn_idx = BP if color == 0 else WP
         state[ep_pawn_idx] = clear_bit(state[ep_pawn_idx], ep_capture_sq)
+        hash_val = update_hash_piece_remove(hash_val, ep_pawn_idx, ep_capture_sq)
         # NOTE: Don't set undo_info for captured piece - EP unmake handles it specially
         # undo_info[1] and undo_info[2] stay at -1
     
     elif FLAG_PROMOTION_QUEEN <= flags <= FLAG_PROMOTION_KNIGHT:
         # Remove pawn
         state[piece_idx] = clear_bit(state[piece_idx], from_sq)
+        hash_val = update_hash_piece_remove(hash_val, piece_idx, from_sq)
         # Add promoted piece
         promo_types = np.array([0, 4, 3, 2, 1], dtype=np.int8)  # Q, R, B, N
         promo_piece = promo_types[flags]
         promo_idx = promo_piece if color == 0 else promo_piece + 6
         state[promo_idx] = set_bit(state[promo_idx], to_sq)
+        hash_val = update_hash_piece_add(hash_val, promo_idx, to_sq)
     
     else:  # Normal move
         state[piece_idx] = clear_bit(state[piece_idx], from_sq)
         state[piece_idx] = set_bit(state[piece_idx], to_sq)
+        hash_val = update_hash_piece_move(hash_val, piece_idx, from_sq, to_sq)
     
     # Update castling rights
     if piece_type == 5:  # King
@@ -537,6 +554,16 @@ def make_move_numba(state: np.ndarray, move: np.uint16) -> np.ndarray:
     # Pack new metadata
     new_side = 1 - side
     state[META] = pack_metadata(castling, new_ep, halfmove, new_side)
+    
+    # Update hash for metadata changes
+    old_castling = unpack_castling(undo_info[0])
+    old_ep = unpack_ep_square(undo_info[0])
+    hash_val = update_hash_castling(hash_val, old_castling, castling)
+    hash_val = update_hash_ep(hash_val, old_ep, new_ep)
+    hash_val = update_hash_side(hash_val)  # Flip side
+    
+    # Store updated hash
+    state[HASH] = hash_val
     
     return undo_info
 
@@ -620,6 +647,9 @@ def unmake_move_numba(state: np.ndarray, move: np.uint16, undo_info: np.ndarray)
     state[OCCUPIED] = np.uint64(0)
     for i in range(12):
         state[OCCUPIED] |= state[i]
+    
+    # Restore hash from undo_info
+    state[HASH] = np.uint64(undo_info[3])
 
 
 # ============================================================================
@@ -745,11 +775,132 @@ def from_fen(fen: str) -> Tuple[np.ndarray, int]:
     for i in range(12):
         state[OCCUPIED] |= state[i]
     
+    # Compute Zobrist hash
+    state[HASH] = compute_zobrist_hash(state)
+    
     return state, fullmove
 
 
 # ============================================================================
-# BOARD CLASS (THIN WRAPPER)
+# ZOBRIST HASHING
+# ============================================================================
+
+# Initialize Zobrist keys at module load (deterministic seed for debugging)
+def _init_zobrist_keys():
+    """Initialize all Zobrist hash keys with deterministic seed."""
+    rng = np.random.RandomState(seed=0)  # Deterministic for reproducibility
+    
+    # Generate random uint64 values by combining two uint32 values
+    # (randint with 2**32 causes overflow, use bytes instead)
+    
+    # 12 piece types × 64 squares = 768 keys
+    pieces_bytes = rng.bytes(12 * 64 * 8)  # 768 uint64 values
+    pieces = np.frombuffer(pieces_bytes, dtype=np.uint64).reshape(12, 64)
+    
+    # 16 castling right combinations (0-15)
+    castling_bytes = rng.bytes(16 * 8)  # 16 uint64 values
+    castling = np.frombuffer(castling_bytes, dtype=np.uint64)
+    
+    # 8 en passant files (a-h)
+    ep_bytes = rng.bytes(8 * 8)  # 8 uint64 values
+    ep = np.frombuffer(ep_bytes, dtype=np.uint64)
+    
+    # Side to move (1 key for black, XOR when black to move)
+    side_bytes = rng.bytes(8)  # 1 uint64 value
+    side = np.frombuffer(side_bytes, dtype=np.uint64)[0]
+    
+    return pieces, castling, ep, side
+
+# Global Zobrist keys (initialized once at module load)
+ZOBRIST_PIECES, ZOBRIST_CASTLING, ZOBRIST_EP, ZOBRIST_SIDE = _init_zobrist_keys()
+
+# Add HASH constant for state array index
+HASH = 14  # Store hash at index 14 (reserved slot)
+
+
+@njit(cache=True)
+def compute_zobrist_hash(state: np.ndarray) -> np.uint64:
+    """
+    Compute Zobrist hash from scratch.
+    Used for FEN loading and hash verification.
+    """
+    hash_val = np.uint64(0)
+    
+    # XOR each piece on the board
+    for piece_idx in range(12):
+        pieces = state[piece_idx]
+        while pieces:
+            sq = lsb(pieces)
+            pieces = clear_bit(pieces, sq)
+            hash_val ^= ZOBRIST_PIECES[piece_idx][sq]
+    
+    # XOR castling rights (use full 4-bit value as index)
+    castling = unpack_castling(state[META])
+    hash_val ^= ZOBRIST_CASTLING[castling]
+    
+    # XOR en passant file (if EP square is set)
+    ep_sq = unpack_ep_square(state[META])
+    if ep_sq >= 0:
+        ep_file = ep_sq % 8
+        hash_val ^= ZOBRIST_EP[ep_file]
+    
+    # XOR side to move (if black to move)
+    side = unpack_side(state[META])
+    if side == 1:  # Black
+        hash_val ^= ZOBRIST_SIDE
+    
+    return hash_val
+
+
+@njit(cache=True)
+def update_hash_piece_move(hash_val: np.uint64, piece_idx: int, from_sq: int, to_sq: int) -> np.uint64:
+    """Update hash for a piece moving from one square to another."""
+    hash_val ^= ZOBRIST_PIECES[piece_idx][from_sq]  # Remove from old square
+    hash_val ^= ZOBRIST_PIECES[piece_idx][to_sq]    # Add to new square
+    return hash_val
+
+
+@njit(cache=True)
+def update_hash_piece_add(hash_val: np.uint64, piece_idx: int, sq: int) -> np.uint64:
+    """Update hash for adding a piece."""
+    hash_val ^= ZOBRIST_PIECES[piece_idx][sq]
+    return hash_val
+
+
+@njit(cache=True)
+def update_hash_piece_remove(hash_val: np.uint64, piece_idx: int, sq: int) -> np.uint64:
+    """Update hash for removing a piece."""
+    hash_val ^= ZOBRIST_PIECES[piece_idx][sq]
+    return hash_val
+
+
+@njit(cache=True)
+def update_hash_castling(hash_val: np.uint64, old_castling: int, new_castling: int) -> np.uint64:
+    """Update hash for castling rights change."""
+    hash_val ^= ZOBRIST_CASTLING[old_castling]
+    hash_val ^= ZOBRIST_CASTLING[new_castling]
+    return hash_val
+
+
+@njit(cache=True)
+def update_hash_ep(hash_val: np.uint64, old_ep: int, new_ep: int) -> np.uint64:
+    """Update hash for en passant square change."""
+    if old_ep >= 0:
+        hash_val ^= ZOBRIST_EP[old_ep % 8]
+    if new_ep >= 0:
+        hash_val ^= ZOBRIST_EP[new_ep % 8]
+    return hash_val
+
+
+@njit(cache=True)
+def update_hash_side(hash_val: np.uint64) -> np.uint64:
+    """Update hash for side to move flip."""
+    hash_val ^= ZOBRIST_SIDE
+    return hash_val
+
+
+# ============================================================================
+# BOARD CLASS (MINIMAL WRAPPER)
 # ============================================================================
 
 class Board:
@@ -786,6 +937,41 @@ class Board:
         if unpack_side(self.state[META]) == 0:  # Currently white, will be black
             self.fullmove -= 1
         unmake_move_numba(self.state, move, undo_info)
+    
+    def make_null_move(self) -> np.ndarray:
+        """
+        Make a null move (pass turn, no piece moved).
+        Used for null move pruning in search.
+        Returns undo info to restore the position.
+        """
+        # Save old metadata
+        old_meta = self.state[META]
+        old_hash = self.state[HASH]
+        
+        # Flip side to move
+        side = unpack_side(old_meta)
+        new_meta = old_meta ^ np.uint64(1)  # Toggle side bit
+        
+        # Clear en passant (it expires)
+        new_meta &= ~(np.uint64(0xFF) << 2)  # Clear EP file bits
+        
+        self.state[META] = new_meta
+        
+        # Update hash (flip side, clear EP if any)
+        new_hash = old_hash ^ ZOBRIST_SIDE
+        ep_file = (old_meta >> 2) & 0xFF
+        if ep_file < 8:
+            new_hash ^= ZOBRIST_EP[ep_file]
+        
+        self.state[HASH] = new_hash
+        
+        # Return undo info
+        return np.array([old_meta, old_hash], dtype=np.uint64)
+    
+    def unmake_null_move(self, undo_info: np.ndarray):
+        """Undo null move."""
+        self.state[META] = undo_info[0]
+        self.state[HASH] = undo_info[1]
     
     def to_fen(self) -> str:
         """Export to FEN notation."""

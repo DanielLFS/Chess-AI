@@ -4,6 +4,10 @@ Tests move generation correctness by counting leaf nodes at various depths.
 Reference: https://www.chessprogramming.org/Perft
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import time
 from engine.board import Board
 from engine.moves import Moves

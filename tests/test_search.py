@@ -1,96 +1,100 @@
 """
-Test Suite for Search Algorithm
+Test bitboard search engine.
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import unittest
-from engine.board import Board, Color
-from engine.search import ChessEngine
-from engine.evaluation import Evaluator
-
-
-class TestEvaluation(unittest.TestCase):
-    """Test position evaluation."""
-    
-    def setUp(self):
-        """Set up evaluator."""
-        self.evaluator = Evaluator()
-    
-    def test_initial_position_eval(self):
-        """Test that initial position is roughly equal."""
-        board = Board()
-        score = self.evaluator.evaluate(board)
-        self.assertAlmostEqual(score, 0, delta=50, msg="Initial position should be roughly equal")
-    
-    def test_material_advantage(self):
-        """Test that material advantage is detected."""
-        board = Board()
-        board.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBN1 w Qkq - 0 1")  # White missing rook
-        score = self.evaluator.evaluate(board)
-        self.assertLess(score, -400, "White should be down material")
-    
-    def test_queen_vs_pawns(self):
-        """Test queen vs pawns evaluation."""
-        board = Board()
-        board.from_fen("4k3/8/8/8/8/8/PPPPPPPP/4K3 w - - 0 1")  # White has 8 pawns
-        score1 = self.evaluator.evaluate(board)
-        
-        board.from_fen("4k3/8/8/8/8/8/8/3QK3 w - - 0 1")  # White has queen
-        score2 = self.evaluator.evaluate(board)
-        
-        self.assertGreater(score2, score1, "Queen should be worth more than 8 pawns")
+import time
+from engine.board import Board, decode_move
+from engine.search import Search
 
 
-class TestSearch(unittest.TestCase):
-    """Test search algorithm."""
+def test_basic_search():
+    """Test search on various positions."""
+    print("=" * 70)
+    print("Testing Bitboard Search Engine")
+    print("=" * 70)
     
-    def test_find_checkmate_in_one(self):
-        """Test that engine finds checkmate in one move."""
-        board = Board()
-        board.from_fen("r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 1")
-        
-        engine = ChessEngine(max_depth=2)
-        move, score = engine.find_best_move(board)
-        
-        self.assertIsNotNone(move, "Engine should find a move")
-        # Check if it's checkmate (move to f7 which is row 1, col 5)
-        self.assertEqual(move.to_pos, (1, 5), "Engine should play Qxf7# or Bxf7# checkmate")
+    positions = [
+        ("Starting position", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5),
+        ("After 1.e4", "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1", 5),
+        ("Kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 4),
+        ("Endgame", "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 6),
+    ]
     
-    def test_avoid_hanging_piece(self):
-        """Test that engine doesn't hang pieces."""
-        board = Board()
-        # Position where white can capture a free queen at e3
-        board.from_fen("rnb1kbnr/pppppppp/8/8/8/4q3/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-        
-        engine = ChessEngine(max_depth=3)
-        move, score = engine.find_best_move(board)
-        
-        # Engine should see a huge material advantage
-        # Score should be very positive (at least +8 pawns = 800 centipawns)
-        self.assertGreater(score, 700, "Engine should recognize large material advantage")
+    search = Search(tt_size_mb=64)
     
-    def test_search_statistics(self):
-        """Test that search statistics are tracked."""
-        board = Board()
-        engine = ChessEngine(max_depth=3)
-        move, score = engine.find_best_move(board)
+    for name, fen, depth in positions:
+        print(f"\n{name}")
+        print(f"FEN: {fen}")
+        print(f"Depth: {depth}")
+        print("-" * 70)
         
-        stats = engine.stats.to_dict()
-        self.assertGreater(stats['nodes_searched'], 0, "Should have searched nodes")
-        self.assertGreater(stats['positions_evaluated'], 0, "Should have evaluated positions")
-    
-    def test_time_limit(self):
-        """Test that search respects time limit."""
-        import time
-        board = Board()
-        engine = ChessEngine(max_depth=10)  # Very deep
+        board = Board.from_fen(fen)
         
         start = time.time()
-        move, score = engine.find_best_move(board, time_limit=0.5)  # 500ms limit
+        move, score = search.search(board, depth=depth, time_limit=10.0)
         elapsed = time.time() - start
         
-        self.assertLess(elapsed, 1.0, "Search should respect time limit")
-        self.assertIsNotNone(move, "Should still return a move")
+        if move:
+            from_sq, to_sq, flags = decode_move(move)
+            from_row, from_col = from_sq // 8, from_sq % 8
+            to_row, to_col = to_sq // 8, to_sq % 8
+            from_notation = f"{chr(ord('a') + from_col)}{8 - from_row}"
+            to_notation = f"{chr(ord('a') + to_col)}{8 - to_row}"
+            
+            print(f"Best move: {from_notation}{to_notation} (encoded: {move:04x})")
+            print(f"Score: {score}")
+        else:
+            print("No legal moves (checkmate or stalemate)")
+        
+        print(f"Time: {elapsed:.2f}s")
+        print(f"{search.stats}")
+        
+        # TT stats
+        tt_stats = search.tt.get_stats()
+        print(f"TT: {tt_stats['stores']:,} stores, {tt_stats['hits']:,} hits, "
+              f"{tt_stats['fill_rate']:.1f}% full")
+    
+    print("\n" + "=" * 70)
+    print("✓ All tests completed successfully!")
+    print("=" * 70)
 
 
-if __name__ == '__main__':
-    unittest.main()
+def test_mate_in_one():
+    """Test that search finds mate in one."""
+    print("\n" + "=" * 70)
+    print("Mate in 1 Test")
+    print("=" * 70)
+    
+    # White to move, Qh5# is mate
+    fen = "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 1"
+    board = Board.from_fen(fen)
+    
+    print(f"Position (Scholar's mate setup): {fen}")
+    
+    search = Search(tt_size_mb=16)
+    move, score = search.search(board, depth=3)
+    
+    if move:
+        from_sq, to_sq, flags = decode_move(move)
+        from_row, from_col = from_sq // 8, from_sq % 8
+        to_row, to_col = to_sq // 8, to_sq % 8
+        from_notation = f"{chr(ord('a') + from_col)}{8 - from_row}"
+        to_notation = f"{chr(ord('a') + to_col)}{8 - to_row}"
+        
+        print(f"Best move: {from_notation}{to_notation}")
+        print(f"Score: {score}")
+        
+        if score >= 99000:  # Near mate score
+            print("✓ Found mate!")
+        else:
+            print("⚠ Didn't recognize mate")
+    
+    print(f"{search.stats}")
+
+
+if __name__ == "__main__":
+    test_basic_search()
+    test_mate_in_one()

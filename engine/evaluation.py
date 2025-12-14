@@ -1,331 +1,239 @@
 """
-Evaluation Module
-Evaluates chess positions for the AI engine.
-Optimized with numpy for fully vectorized operations - no loops!
+Evaluation - Bitboard Implementation
+Positional evaluation with material, piece-square tables, and tactical bonuses.
 """
 
-from engine.board import Board, PieceType, Color
-from typing import Dict
 import numpy as np
 from numba import njit
+from engine.board import (
+    WP, WN, WB, WR, WQ, WK,
+    BP, BN, BB, BR, BQ, BK,
+    META, unpack_side,
+    lsb, clear_bit, pop_count
+)
+
+# Piece values (centipawns)
+PIECE_VALUES = np.array([100, 320, 330, 500, 900, 20000], dtype=np.int32)  # P,N,B,R,Q,K
+
+# Piece-Square Tables (from white's perspective, rank 0 = rank 8)
+# Values are bonuses in centipawns
+
+PAWN_TABLE = np.array([
+    [  0,   0,   0,   0,   0,   0,   0,   0],
+    [ 50,  50,  50,  50,  50,  50,  50,  50],
+    [ 10,  10,  20,  30,  30,  20,  10,  10],
+    [  5,   5,  10,  25,  25,  10,   5,   5],
+    [  0,   0,   0,  20,  20,   0,   0,   0],
+    [  5,  -5, -10,   0,   0, -10,  -5,   5],
+    [  5,  10,  10, -20, -20,  10,  10,   5],
+    [  0,   0,   0,   0,   0,   0,   0,   0]
+], dtype=np.int32)
+
+KNIGHT_TABLE = np.array([
+    [-50, -40, -30, -30, -30, -30, -40, -50],
+    [-40, -20,   0,   0,   0,   0, -20, -40],
+    [-30,   0,  10,  15,  15,  10,   0, -30],
+    [-30,   5,  15,  20,  20,  15,   5, -30],
+    [-30,   0,  15,  20,  20,  15,   0, -30],
+    [-30,   5,  10,  15,  15,  10,   5, -30],
+    [-40, -20,   0,   5,   5,   0, -20, -40],
+    [-50, -40, -30, -30, -30, -30, -40, -50]
+], dtype=np.int32)
+
+BISHOP_TABLE = np.array([
+    [-20, -10, -10, -10, -10, -10, -10, -20],
+    [-10,   0,   0,   0,   0,   0,   0, -10],
+    [-10,   0,   5,  10,  10,   5,   0, -10],
+    [-10,   5,   5,  10,  10,   5,   5, -10],
+    [-10,   0,  10,  10,  10,  10,   0, -10],
+    [-10,  10,  10,  10,  10,  10,  10, -10],
+    [-10,   5,   0,   0,   0,   0,   5, -10],
+    [-20, -10, -10, -10, -10, -10, -10, -20]
+], dtype=np.int32)
+
+ROOK_TABLE = np.array([
+    [  0,   0,   0,   0,   0,   0,   0,   0],
+    [  5,  10,  10,  10,  10,  10,  10,   5],
+    [ -5,   0,   0,   0,   0,   0,   0,  -5],
+    [ -5,   0,   0,   0,   0,   0,   0,  -5],
+    [ -5,   0,   0,   0,   0,   0,   0,  -5],
+    [ -5,   0,   0,   0,   0,   0,   0,  -5],
+    [ -5,   0,   0,   0,   0,   0,   0,  -5],
+    [  0,   0,   0,   5,   5,   0,   0,   0]
+], dtype=np.int32)
+
+QUEEN_TABLE = np.array([
+    [-20, -10, -10,  -5,  -5, -10, -10, -20],
+    [-10,   0,   0,   0,   0,   0,   0, -10],
+    [-10,   0,   5,   5,   5,   5,   0, -10],
+    [ -5,   0,   5,   5,   5,   5,   0,  -5],
+    [  0,   0,   5,   5,   5,   5,   0,  -5],
+    [-10,   5,   5,   5,   5,   5,   0, -10],
+    [-10,   0,   5,   0,   0,   0,   0, -10],
+    [-20, -10, -10,  -5,  -5, -10, -10, -20]
+], dtype=np.int32)
+
+KING_MIDDLEGAME_TABLE = np.array([
+    [-30, -40, -40, -50, -50, -40, -40, -30],
+    [-30, -40, -40, -50, -50, -40, -40, -30],
+    [-30, -40, -40, -50, -50, -40, -40, -30],
+    [-30, -40, -40, -50, -50, -40, -40, -30],
+    [-20, -30, -30, -40, -40, -30, -30, -20],
+    [-10, -20, -20, -20, -20, -20, -20, -10],
+    [ 20,  20,   0,   0,   0,   0,  20,  20],
+    [ 20,  30,  10,   0,   0,  10,  30,  20]
+], dtype=np.int32)
+
+KING_ENDGAME_TABLE = np.array([
+    [-50, -40, -30, -20, -20, -30, -40, -50],
+    [-30, -20, -10,   0,   0, -10, -20, -30],
+    [-30, -10,  20,  30,  30,  20, -10, -30],
+    [-30, -10,  30,  40,  40,  30, -10, -30],
+    [-30, -10,  30,  40,  40,  30, -10, -30],
+    [-30, -10,  20,  30,  30,  20, -10, -30],
+    [-30, -30,   0,   0,   0,   0, -30, -30],
+    [-50, -30, -30, -30, -30, -30, -30, -50]
+], dtype=np.int32)
+
+# Pre-flip tables for black (mirror vertically)
+PAWN_TABLE_BLACK = np.flipud(PAWN_TABLE)
+KNIGHT_TABLE_BLACK = np.flipud(KNIGHT_TABLE)
+BISHOP_TABLE_BLACK = np.flipud(BISHOP_TABLE)
+ROOK_TABLE_BLACK = np.flipud(ROOK_TABLE)
+QUEEN_TABLE_BLACK = np.flipud(QUEEN_TABLE)
+KING_MIDDLEGAME_TABLE_BLACK = np.flipud(KING_MIDDLEGAME_TABLE)
+KING_ENDGAME_TABLE_BLACK = np.flipud(KING_ENDGAME_TABLE)
 
 
-@njit(cache=True)
-def _create_piece_square_array(board_array, color_array, is_endgame,
-                                pawn_table, knight_table, bishop_table,
-                                rook_table, queen_table, king_mid_table, king_end_table):
+@njit
+def evaluate(state: np.ndarray) -> int:
     """
-    Ultra-fast vectorized position evaluation using 3D table lookup.
-    Creates a 3D array where piece_square_values[piece_type] = table for that piece.
+    Evaluate position from current side's perspective.
+    
+    Returns score in centipawns (positive = good for side to move).
     """
+    side = unpack_side(state[META])
+    
+    # Material and positional score (from white's perspective)
     score = 0
     
-    # Single pass through non-empty squares
-    for row in range(8):
-        for col in range(8):
-            piece_type = board_array[row, col]
-            if piece_type == 0:
-                continue
+    # Check if endgame (low material)
+    total_material = 0
+    for piece_idx in range(5):  # Exclude king
+        white_pieces = state[WP + piece_idx]
+        black_pieces = state[BP + piece_idx]
+        piece_value = int(PIECE_VALUES[piece_idx])
+        total_material += pop_count(white_pieces) * piece_value
+        total_material += pop_count(black_pieces) * piece_value
+    
+    is_endgame = total_material < 2500  # Roughly 2 minor pieces per side
+    
+    # Evaluate white pieces
+    score += evaluate_pieces(state, 0, is_endgame)
+    
+    # Evaluate black pieces (negate)
+    score -= evaluate_pieces(state, 1, is_endgame)
+    
+    # Return from current side's perspective
+    return score if side == 0 else -score
+
+
+@njit
+def evaluate_pieces(state: np.ndarray, color: int, is_endgame: bool) -> int:
+    """Evaluate all pieces for one color."""
+    score = 0
+    piece_start = WP if color == 0 else BP
+    
+    # Evaluate each piece type
+    for piece_idx in range(5):  # P, N, B, R, Q
+        pieces = state[piece_start + piece_idx]
+        piece_value = int(PIECE_VALUES[piece_idx])
+        
+        # Select appropriate table
+        if piece_idx == 0:  # Pawn
+            table = PAWN_TABLE if color == 0 else PAWN_TABLE_BLACK
+        elif piece_idx == 1:  # Knight
+            table = KNIGHT_TABLE if color == 0 else KNIGHT_TABLE_BLACK
+        elif piece_idx == 2:  # Bishop
+            table = BISHOP_TABLE if color == 0 else BISHOP_TABLE_BLACK
+        elif piece_idx == 3:  # Rook
+            table = ROOK_TABLE if color == 0 else ROOK_TABLE_BLACK
+        else:  # Queen
+            table = QUEEN_TABLE if color == 0 else QUEEN_TABLE_BLACK
+        
+        while pieces:
+            sq = lsb(pieces)
+            pieces = clear_bit(pieces, sq)
             
-            color = color_array[row, col]
-            eval_row = row if color == 1 else 7 - row
+            row = sq // 8
+            col = sq % 8
             
-            # Lookup table value (if/elif is fastest in numba for small branches)
-            if piece_type == 1:
-                table_value = pawn_table[eval_row, col]
-            elif piece_type == 2:
-                table_value = knight_table[eval_row, col]
-            elif piece_type == 3:
-                table_value = bishop_table[eval_row, col]
-            elif piece_type == 4:
-                table_value = rook_table[eval_row, col]
-            elif piece_type == 5:
-                table_value = queen_table[eval_row, col]
-            elif piece_type == 6:
-                table_value = king_end_table[eval_row, col] if is_endgame else king_mid_table[eval_row, col]
-            else:
-                table_value = 0
-            
-            score += table_value * color
+            # Material + position
+            score += piece_value + int(table[row, col])
+    
+    # Evaluate king
+    king = state[piece_start + 5]
+    if king:
+        sq = lsb(king)
+        row = sq // 8
+        col = sq % 8
+        
+        # Select king table based on game phase and color
+        if is_endgame:
+            king_table = KING_ENDGAME_TABLE if color == 0 else KING_ENDGAME_TABLE_BLACK
+        else:
+            king_table = KING_MIDDLEGAME_TABLE if color == 0 else KING_MIDDLEGAME_TABLE_BLACK
+        
+        score += int(PIECE_VALUES[5]) + int(king_table[row, col])
     
     return score
 
 
-class Evaluator:
-    """Evaluates chess positions with material and positional factors."""
-    __slots__ = ('weights', '_board_array', '_color_array')  # Memory optimization
+@njit
+def evaluate_simple(state: np.ndarray) -> int:
+    """
+    Simple material-only evaluation (faster).
+    Returns score from current side's perspective.
+    """
+    side = unpack_side(state[META])
+    score = 0
     
-    # Piece values in centipawns (1 pawn = 100)
-    PIECE_VALUES = {
-        PieceType.PAWN: 100,
-        PieceType.KNIGHT: 320,
-        PieceType.BISHOP: 330,
-        PieceType.ROOK: 500,
-        PieceType.QUEEN: 900,
-        PieceType.KING: 20000
-    }
+    # Count material for each piece type
+    for piece_idx in range(6):
+        white_pieces = state[WP + piece_idx]
+        black_pieces = state[BP + piece_idx]
+        white_count = pop_count(white_pieces)
+        black_count = pop_count(black_pieces)
+        piece_value = int(PIECE_VALUES[piece_idx])
+        score += piece_value * (white_count - black_count)
     
-    # Convert piece-square tables to numpy arrays for faster access
-    # Piece-square tables (values are from white's perspective)
-    # Positive values indicate better squares
+    return score if side == 0 else -score
+
+
+# Example usage
+if __name__ == "__main__":
+    from engine.board import Board
     
-    PAWN_TABLE = np.array([
-        [  0,  0,  0,  0,  0,  0,  0,  0],
-        [ 50, 50, 50, 50, 50, 50, 50, 50],
-        [ 10, 10, 20, 30, 30, 20, 10, 10],
-        [  5,  5, 10, 25, 25, 10,  5,  5],
-        [  0,  0,  0, 20, 20,  0,  0,  0],
-        [  5, -5,-10,  0,  0,-10, -5,  5],
-        [  5, 10, 10,-20,-20, 10, 10,  5],
-        [  0,  0,  0,  0,  0,  0,  0,  0]
-    ], dtype=np.int16)
+    print("Testing evaluation function\n")
     
-    KNIGHT_TABLE = np.array([
-        [-50,-40,-30,-30,-30,-30,-40,-50],
-        [-40,-20,  0,  0,  0,  0,-20,-40],
-        [-30,  0, 10, 15, 15, 10,  0,-30],
-        [-30,  5, 15, 20, 20, 15,  5,-30],
-        [-30,  0, 15, 20, 20, 15,  0,-30],
-        [-30,  5, 10, 15, 15, 10,  5,-30],
-        [-40,-20,  0,  5,  5,  0,-20,-40],
-        [-50,-40,-30,-30,-30,-30,-40,-50]
-    ], dtype=np.int16)
+    # Starting position should be near 0
+    board = Board()
+    score = evaluate(board.state)
+    print(f"Starting position: {score} cp")
     
-    BISHOP_TABLE = np.array([
-        [-20,-10,-10,-10,-10,-10,-10,-20],
-        [-10,  0,  0,  0,  0,  0,  0,-10],
-        [-10,  0,  5, 10, 10,  5,  0,-10],
-        [-10,  5,  5, 10, 10,  5,  5,-10],
-        [-10,  0, 10, 10, 10, 10,  0,-10],
-        [-10, 10, 10, 10, 10, 10, 10,-10],
-        [-10,  5,  0,  0,  0,  0,  5,-10],
-        [-20,-10,-10,-10,-10,-10,-10,-20]
-    ], dtype=np.int16)
+    # After 1.e4
+    board = Board.from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
+    score = evaluate(board.state)
+    print(f"After 1.e4: {score} cp")
     
-    ROOK_TABLE = np.array([
-        [  0,  0,  0,  0,  0,  0,  0,  0],
-        [  5, 10, 10, 10, 10, 10, 10,  5],
-        [ -5,  0,  0,  0,  0,  0,  0, -5],
-        [ -5,  0,  0,  0,  0,  0,  0, -5],
-        [ -5,  0,  0,  0,  0,  0,  0, -5],
-        [ -5,  0,  0,  0,  0,  0,  0, -5],
-        [ -5,  0,  0,  0,  0,  0,  0, -5],
-        [  0,  0,  0,  5,  5,  0,  0,  0]
-    ], dtype=np.int16)
+    # White up a queen
+    board = Board.from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPPQPPP/RNB1KBNR b KQkq - 0 1")
+    score = evaluate(board.state)
+    print(f"White up a queen: {score} cp")
     
-    QUEEN_TABLE = np.array([
-        [-20,-10,-10, -5, -5,-10,-10,-20],
-        [-10,  0,  0,  0,  0,  0,  0,-10],
-        [-10,  0,  5,  5,  5,  5,  0,-10],
-        [ -5,  0,  5,  5,  5,  5,  0, -5],
-        [  0,  0,  5,  5,  5,  5,  0, -5],
-        [-10,  5,  5,  5,  5,  5,  0,-10],
-        [-10,  0,  5,  0,  0,  0,  0,-10],
-        [-20,-10,-10, -5, -5,-10,-10,-20]
-    ], dtype=np.int16)
+    # Endgame position
+    board = Board.from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1")
+    score = evaluate(board.state)
+    print(f"Endgame position: {score} cp")
     
-    KING_MIDDLEGAME_TABLE = np.array([
-        [-30,-40,-40,-50,-50,-40,-40,-30],
-        [-30,-40,-40,-50,-50,-40,-40,-30],
-        [-30,-40,-40,-50,-50,-40,-40,-30],
-        [-30,-40,-40,-50,-50,-40,-40,-30],
-        [-20,-30,-30,-40,-40,-30,-30,-20],
-        [-10,-20,-20,-20,-20,-20,-20,-10],
-        [ 20, 20,  0,  0,  0,  0, 20, 20],
-        [ 20, 30, 10,  0,  0, 10, 30, 20]
-    ], dtype=np.int16)
-    
-    KING_ENDGAME_TABLE = np.array([
-        [-50,-40,-30,-20,-20,-30,-40,-50],
-        [-30,-20,-10,  0,  0,-10,-20,-30],
-        [-30,-10, 20, 30, 30, 20,-10,-30],
-        [-30,-10, 30, 40, 40, 30,-10,-30],
-        [-30,-10, 30, 40, 40, 30,-10,-30],
-        [-30,-10, 20, 30, 30, 20,-10,-30],
-        [-30,-30,  0,  0,  0,  0,-30,-30],
-        [-50,-30,-30,-30,-30,-30,-30,-50]
-    ], dtype=np.int16)
-    
-    # Create numpy array for fast piece value lookup
-    # Index: 0=empty, 1=pawn, 2=knight, 3=bishop, 4=rook, 5=queen, 6=king
-    PIECE_VALUE_ARRAY = np.array([0, 100, 320, 330, 500, 900, 20000], dtype=np.int32)
-    
-    def __init__(self, weights: Dict[str, float] = None):
-        """
-        Initialize evaluator with configurable weights.
-        weights: Dictionary with keys like 'material', 'positional', 'mobility'
-        """
-        self.weights = weights or {
-            'material': 1.0,
-            'positional': 1.0,
-            'mobility': 0.1,
-            'king_safety': 0.5,
-            'pawn_structure': 0.5
-        }
-    
-    def evaluate(self, board: Board) -> float:
-        """
-        Evaluate a chess position.
-        Returns a score in centipawns from white's perspective.
-        Positive = white advantage, Negative = black advantage
-        """
-        # Lazy evaluation: if material difference is huge, skip detailed eval
-        material_score = self.weights['material'] * self._evaluate_material(board)
-        
-        # If material advantage > 15 pawns (1500 centipawns), position is decided
-        if abs(material_score) > 1500:
-            return material_score
-        
-        score = material_score
-        
-        # Positional evaluation (piece-square tables)
-        score += self.weights['positional'] * self._evaluate_position(board)
-        
-        # Additional evaluation factors (can enable these for stronger play)
-        # score += self.weights['mobility'] * self._evaluate_mobility(board)
-        # score += self.weights['king_safety'] * self._evaluate_king_safety(board)
-        # score += self.weights['pawn_structure'] * self._evaluate_pawn_structure(board)
-        
-        return score
-    
-    def _evaluate_material(self, board: Board) -> float:
-        """Count material value for both sides using vectorized operations."""
-        # Access numpy arrays directly from board (zero conversion overhead!)
-        board_array = board.piece_array
-        color_array = board.color_array
-        
-        # Vectorized material calculation
-        # Map piece types to values, multiply by colors, sum everything
-        values = self.PIECE_VALUE_ARRAY[board_array]
-        score = np.sum(values * color_array)
-        
-        return float(score)
-    
-    def _evaluate_position(self, board: Board) -> float:
-        """Evaluate piece positions using piece-square tables with vectorized operations."""
-        # Access numpy arrays directly from board (zero conversion overhead!)
-        board_array = board.piece_array
-        color_array = board.color_array
-        
-        # Determine if we're in endgame
-        is_endgame = self._is_endgame_fast(board_array, color_array)
-        
-        # Use numba-compiled function for fast position evaluation
-        score = _create_piece_square_array(
-            board_array, color_array, is_endgame,
-            self.PAWN_TABLE, self.KNIGHT_TABLE, self.BISHOP_TABLE,
-            self.ROOK_TABLE, self.QUEEN_TABLE, 
-            self.KING_MIDDLEGAME_TABLE, self.KING_ENDGAME_TABLE
-        )
-        
-        return float(score)
-    
-    def _is_endgame_fast(self, board_array, color_array) -> bool:
-        """Fast endgame detection using numpy operations."""
-        # Count queens (piece type 5)
-        queen_mask = (board_array == 5)
-        white_queens = np.sum(queen_mask & (color_array == 1))
-        black_queens = np.sum(queen_mask & (color_array == -1))
-        
-        # If both queens traded, it's endgame
-        if white_queens == 0 and black_queens == 0:
-            return True
-        
-        # Count non-pawn, non-king material
-        # Pieces 2,3,4,5 (knight, bishop, rook, queen)
-        minor_major_mask = (board_array >= 2) & (board_array <= 5)
-        values = self.PIECE_VALUE_ARRAY[board_array]
-        total_material = np.sum(values[minor_major_mask])
-        
-        return total_material < 2600
-    
-    def _get_piece_square_value(self, piece, row: int, col: int, is_endgame: bool) -> float:
-        """Get the piece-square table value for a piece."""
-        # For black pieces, flip the row (black's perspective)
-        if piece.color == Color.BLACK:
-            row = 7 - row
-        
-        if piece.type == PieceType.PAWN:
-            return self.PAWN_TABLE[row][col]
-        elif piece.type == PieceType.KNIGHT:
-            return self.KNIGHT_TABLE[row][col]
-        elif piece.type == PieceType.BISHOP:
-            return self.BISHOP_TABLE[row][col]
-        elif piece.type == PieceType.ROOK:
-            return self.ROOK_TABLE[row][col]
-        elif piece.type == PieceType.QUEEN:
-            return self.QUEEN_TABLE[row][col]
-        elif piece.type == PieceType.KING:
-            if is_endgame:
-                return self.KING_ENDGAME_TABLE[row][col]
-            else:
-                return self.KING_MIDDLEGAME_TABLE[row][col]
-        
-        return 0
-    
-    def _is_endgame(self, board: Board) -> bool:
-        """
-        Determine if position is in endgame phase.
-        Simple heuristic: queens are off the board or total material is low.
-        """
-        white_queens = 0
-        black_queens = 0
-        total_material = 0
-        
-        for row in range(8):
-            for col in range(8):
-                piece = board.get_piece((row, col))
-                if piece:
-                    if piece.type == PieceType.QUEEN:
-                        if piece.color == Color.WHITE:
-                            white_queens += 1
-                        else:
-                            black_queens += 1
-                    # Count non-pawn, non-king material
-                    if piece.type not in [PieceType.PAWN, PieceType.KING]:
-                        total_material += self.PIECE_VALUES[piece.type]
-        
-        # Endgame if both queens are off or total material is low
-        queens_traded = (white_queens == 0 and black_queens == 0)
-        low_material = total_material < 2600  # Less than 2 rooks + 2 bishops worth
-        
-        return queens_traded or low_material
-    
-    def _evaluate_mobility(self, board: Board) -> float:
-        """
-        Evaluate piece mobility (number of legal moves).
-        More mobility generally means better position.
-        """
-        from engine.moves import MoveGenerator
-        
-        gen = MoveGenerator(board)
-        white_moves = len(gen.generate_legal_moves(Color.WHITE))
-        black_moves = len(gen.generate_legal_moves(Color.BLACK))
-        
-        return (white_moves - black_moves) * 0.1
-    
-    def _evaluate_king_safety(self, board: Board) -> float:
-        """
-        Evaluate king safety based on pawn shield and attacking pieces.
-        """
-        # TODO: Implement king safety evaluation
-        # - Check pawn shield in front of king
-        # - Count attacking pieces near king
-        # - Penalize open files near king
-        return 0
-    
-    def _evaluate_pawn_structure(self, board: Board) -> float:
-        """
-        Evaluate pawn structure.
-        Penalize doubled, isolated, and backward pawns.
-        Reward passed pawns.
-        """
-        # TODO: Implement pawn structure evaluation
-        return 0
-    
-    def quick_evaluate(self, board: Board) -> float:
-        """
-        Quick evaluation using only material count.
-        Useful for leaf nodes in quiescence search.
-        """
-        return self._evaluate_material(board)
+    print("\n✓ Evaluation tests complete")
