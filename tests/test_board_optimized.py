@@ -1,12 +1,13 @@
 """
-Test suite for optimized board.py
+Test suite for optimized board.py (MINIMAL OOP version)
 Tests both individual numba functions and the Board class integration.
+NO Piece/Move classes - working with raw values only!
 """
 
 import pytest
 import numpy as np
 from engine.board import (
-    Board, Piece, Move, PieceType, Color,
+    Board, PieceType, Color,
     make_move_fast, unmake_move_fast, update_castling_rights, decode_move,
     CASTLE_WK, CASTLE_WQ, CASTLE_BK, CASTLE_BQ, CASTLE_ALL,
     FLAG_NORMAL, FLAG_PROMOTION_QUEEN, FLAG_CASTLING_KINGSIDE, 
@@ -314,12 +315,11 @@ class TestBoardIntegration:
         assert board.fullmove_number == 3
     
     def test_make_unmake_normal_move(self):
-        """Test making and unmaking a normal move."""
+        """Test making and unmaking a normal move (e2-e4)."""
         board = Board()
         
-        # e2-e4
-        move = Move((6, 4), (4, 4))
-        success = board.make_move(move)
+        # e2-e4 using raw coordinates
+        success = board.make_move(6, 4, 4, 4, FLAG_NORMAL)
         
         assert success
         assert board.piece_array[4, 4] == PieceType.PAWN
@@ -327,7 +327,7 @@ class TestBoardIntegration:
         assert board.current_player == Color.BLACK
         
         # Unmake
-        board.unmake_move(move)
+        board.unmake_move(6, 4, 4, 4, FLAG_NORMAL)
         
         assert board.piece_array[6, 4] == PieceType.PAWN
         assert board.piece_array[4, 4] == 0
@@ -336,23 +336,17 @@ class TestBoardIntegration:
     def test_make_unmake_capture(self):
         """Test capture and unmake."""
         board = Board()
-        board.from_fen("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2")
-        
-        # Pawn takes pawn: e4xd5 (simpler position)
+        # Pawn takes pawn: e4xd5
         board.from_fen("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2")
-        move = Move((4, 4), (3, 3))
         
-        # Store original state
-        orig_captured = board.get_piece((3, 3))
-        
-        board.make_move(move)
+        board.make_move(4, 4, 3, 3, FLAG_NORMAL)
         
         # Check capture happened
         assert board.piece_array[3, 3] == PieceType.PAWN
         assert board.color_array[3, 3] == Color.WHITE
         
         # Unmake
-        board.unmake_move(move)
+        board.unmake_move(4, 4, 3, 3, FLAG_NORMAL)
         
         # Check restored
         assert board.piece_array[4, 4] == PieceType.PAWN
@@ -361,13 +355,12 @@ class TestBoardIntegration:
         assert board.color_array[3, 3] == Color.BLACK
     
     def test_make_unmake_castling_kingside(self):
-        """Test kingside castling."""
+        """Test kingside castling (O-O)."""
         board = Board()
         board.from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK2R w KQkq - 0 1")
         
         # O-O
-        move = Move((7, 4), (7, 6), is_castling=True)
-        board.make_move(move)
+        board.make_move(7, 4, 7, 6, FLAG_CASTLING_KINGSIDE)
         
         # Check castled position
         assert board.piece_array[7, 6] == PieceType.KING
@@ -380,7 +373,7 @@ class TestBoardIntegration:
         assert not (board.castling_rights & CASTLE_WQ)
         
         # Unmake
-        board.unmake_move(move)
+        board.unmake_move(7, 4, 7, 6, FLAG_CASTLING_KINGSIDE)
         
         # Check restored
         assert board.piece_array[7, 4] == PieceType.KING
@@ -389,13 +382,12 @@ class TestBoardIntegration:
         assert board.piece_array[7, 5] == 0
     
     def test_make_unmake_en_passant(self):
-        """Test en passant capture."""
+        """Test en passant capture (e5xd6 e.p.)."""
         board = Board()
         board.from_fen("rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2")
         
         # e5xd6 e.p.
-        move = Move((3, 4), (2, 3), is_en_passant=True)
-        board.make_move(move)
+        board.make_move(3, 4, 2, 3, FLAG_EN_PASSANT)
         
         # Check capture
         assert board.piece_array[2, 3] == PieceType.PAWN
@@ -403,7 +395,7 @@ class TestBoardIntegration:
         assert board.piece_array[3, 3] == 0  # Captured pawn removed
         
         # Unmake
-        board.unmake_move(move)
+        board.unmake_move(3, 4, 2, 3, FLAG_EN_PASSANT)
         
         # Check restored
         assert board.piece_array[3, 4] == PieceType.PAWN
@@ -412,20 +404,19 @@ class TestBoardIntegration:
         assert board.color_array[3, 3] == Color.BLACK
     
     def test_make_unmake_promotion(self):
-        """Test pawn promotion."""
+        """Test pawn promotion (e7-e8=Q)."""
         board = Board()
-        board.from_fen("8/4P3/8/8/8/8/4k3/4K3 w - - 0 1")  # No piece on e8
+        board.from_fen("8/4P3/8/8/8/8/4k3/4K3 w - - 0 1")
         
         # e7-e8=Q
-        move = Move((1, 4), (0, 4), promotion=PieceType.QUEEN)
-        board.make_move(move)
+        board.make_move(1, 4, 0, 4, FLAG_PROMOTION_QUEEN)
         
         # Check promoted
         assert board.piece_array[0, 4] == PieceType.QUEEN
         assert board.color_array[0, 4] == Color.WHITE
         
         # Unmake
-        board.unmake_move(move)
+        board.unmake_move(1, 4, 0, 4, FLAG_PROMOTION_QUEEN)
         
         # Check restored as pawn
         assert board.piece_array[1, 4] == PieceType.PAWN
@@ -433,12 +424,11 @@ class TestBoardIntegration:
         assert board.piece_array[0, 4] == 0
     
     def test_castling_rights_updates(self):
-        """Test castling rights update correctly."""
+        """Test castling rights update correctly when king moves."""
         board = Board()
         
-        # Move white king
-        move = Move((7, 4), (7, 5))
-        board.make_move(move)
+        # Move white king (e1-f1)
+        board.make_move(7, 4, 7, 5, FLAG_NORMAL)
         
         # Check white lost castling
         assert not (board.castling_rights & CASTLE_WK)
@@ -447,19 +437,17 @@ class TestBoardIntegration:
         assert (board.castling_rights & CASTLE_BQ)
     
     def test_en_passant_target_updates(self):
-        """Test en passant target is set correctly."""
+        """Test en passant target is set correctly on double pawn push."""
         board = Board()
         
         # e2-e4 (double pawn push)
-        move = Move((6, 4), (4, 4))
-        board.make_move(move)
+        board.make_move(6, 4, 4, 4, FLAG_NORMAL)
         
         # Check en passant target set
         assert board.en_passant_target == (5, 4)  # e3
         
         # Next move should clear it
-        move2 = Move((1, 0), (2, 0))  # Random black move
-        board.make_move(move2)
+        board.make_move(1, 0, 2, 0, FLAG_NORMAL)  # Random black move
         
         assert board.en_passant_target is None
     
@@ -467,35 +455,30 @@ class TestBoardIntegration:
         """Test halfmove clock increments and resets."""
         board = Board()
         
-        # Knight move (clock increments)
-        move1 = Move((7, 1), (5, 2))
-        board.make_move(move1)
+        # Knight move (clock increments) - Nb1-c3
+        board.make_move(7, 1, 5, 2, FLAG_NORMAL)
         assert board.halfmove_clock == 1
         
-        # Another knight move
-        move2 = Move((0, 1), (2, 2))
-        board.make_move(move2)
+        # Another knight move - Nb8-c6
+        board.make_move(0, 1, 2, 2, FLAG_NORMAL)
         assert board.halfmove_clock == 2
         
-        # Pawn move (clock resets)
-        move3 = Move((6, 0), (4, 0))
-        board.make_move(move3)
+        # Pawn move (clock resets) - a2-a4
+        board.make_move(6, 0, 4, 0, FLAG_NORMAL)
         assert board.halfmove_clock == 0
     
     def test_fullmove_number_updates(self):
-        """Test fullmove number increments."""
+        """Test fullmove number increments after black's move."""
         board = Board()
         
         assert board.fullmove_number == 1
         
-        # White move
-        move1 = Move((6, 4), (4, 4))
-        board.make_move(move1)
+        # White move - e2-e4
+        board.make_move(6, 4, 4, 4, FLAG_NORMAL)
         assert board.fullmove_number == 1  # Still 1
         
-        # Black move
-        move2 = Move((1, 4), (3, 4))
-        board.make_move(move2)
+        # Black move - e7-e5
+        board.make_move(1, 4, 3, 4, FLAG_NORMAL)
         assert board.fullmove_number == 2  # Now 2
     
     def test_player_switches(self):
@@ -504,12 +487,11 @@ class TestBoardIntegration:
         
         assert board.current_player == Color.WHITE
         
-        move = Move((6, 4), (4, 4))
-        board.make_move(move)
+        board.make_move(6, 4, 4, 4, FLAG_NORMAL)
         
         assert board.current_player == Color.BLACK
         
-        board.unmake_move(move)
+        board.unmake_move(6, 4, 4, 4, FLAG_NORMAL)
         
         assert board.current_player == Color.WHITE
     
@@ -520,14 +502,13 @@ class TestBoardIntegration:
         assert board.king_positions[Color.WHITE] == (7, 4)
         assert board.king_positions[Color.BLACK] == (0, 4)
         
-        # Move white king
-        move = Move((7, 4), (7, 5))
-        board.make_move(move)
+        # Move white king (e1-f1)
+        board.make_move(7, 4, 7, 5, FLAG_NORMAL)
         
         assert board.king_positions[Color.WHITE] == (7, 5)
         
         # Unmake
-        board.unmake_move(move)
+        board.unmake_move(7, 4, 7, 5, FLAG_NORMAL)
         
         assert board.king_positions[Color.WHITE] == (7, 4)
 
@@ -540,21 +521,21 @@ class TestEdgeCases:
     """Test edge cases and complex scenarios."""
     
     def test_multiple_moves_sequence(self):
-        """Test a sequence of moves."""
+        """Test a sequence of moves and unmake all."""
         board = Board()
         moves = [
-            Move((6, 4), (4, 4)),  # e4
-            Move((1, 4), (3, 4)),  # e5
-            Move((7, 6), (5, 5)),  # Nf3
-            Move((0, 1), (2, 2)),  # Nc6
+            (6, 4, 4, 4, FLAG_NORMAL),  # e4
+            (1, 4, 3, 4, FLAG_NORMAL),  # e5
+            (7, 6, 5, 5, FLAG_NORMAL),  # Nf3
+            (0, 1, 2, 2, FLAG_NORMAL),  # Nc6
         ]
         
-        for move in moves:
-            board.make_move(move)
+        for from_r, from_c, to_r, to_c, flags in moves:
+            board.make_move(from_r, from_c, to_r, to_c, flags)
         
         # Unmake all
-        for move in reversed(moves):
-            board.unmake_move(move)
+        for from_r, from_c, to_r, to_c, flags in reversed(moves):
+            board.unmake_move(from_r, from_c, to_r, to_c, flags)
         
         # Should be back to starting position
         fen = board.to_fen()
@@ -578,8 +559,7 @@ class TestEdgeCases:
     def test_board_copy(self):
         """Test board copying."""
         board1 = Board()
-        move = Move((6, 4), (4, 4))
-        board1.make_move(move)
+        board1.make_move(6, 4, 4, 4, FLAG_NORMAL)
         
         board2 = board1.copy()
         
@@ -588,8 +568,7 @@ class TestEdgeCases:
         assert np.array_equal(board1.color_array, board2.color_array)
         
         # Modify board2
-        move2 = Move((1, 4), (3, 4))
-        board2.make_move(move2)
+        board2.make_move(1, 4, 3, 4, FLAG_NORMAL)
         
         # board1 should be unchanged
         assert not np.array_equal(board1.piece_array, board2.piece_array)
