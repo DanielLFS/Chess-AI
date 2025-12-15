@@ -434,8 +434,8 @@ function Game() {
       return
     }
 
-    // If offline mode, just update the board
-    if (gameId === 'offline-mode') {
+    // If offline mode or local multiplayer, just update the board without backend
+    if (gameId === 'offline-mode' || gameMode === 'local') {
       const newBoard = [...board.map(row => [...row])]
       const piece = newBoard[fromRow][fromCol]
       const capturedPiece = newBoard[toRow][toCol]
