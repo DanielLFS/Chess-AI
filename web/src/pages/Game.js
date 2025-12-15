@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import './Game.css'
 
@@ -40,21 +40,24 @@ const fromChessNotation = (notation) => {
 
 function Game() {
   const navigate = useNavigate()
+  const location = useLocation()
+  
+  // Get settings from GameSetup page
+  const settings = location.state || {}
+  const difficulty = settings.difficulty || 4
+  const playerColor = settings.playerColor || 'white'
+  const showCoordinates = settings.showCoordinates !== undefined ? settings.showCoordinates : true
+  const showLastMove = settings.showLastMove !== undefined ? settings.showLastMove : true
+  const soundEnabled = settings.soundEnabled !== undefined ? settings.soundEnabled : true
+  const boardTheme = settings.boardTheme || 'classic'
+  const gameMode = settings.gameMode || 'ai'
+  
   const [board, setBoard] = useState(INITIAL_BOARD)
   const [selectedSquare, setSelectedSquare] = useState(null)
   const [legalMoves, setLegalMoves] = useState([])
   const [status, setStatus] = useState('Your move!')
   const [gameId, setGameId] = useState(null)
   const [isThinking, setIsThinking] = useState(false)
-  
-  // Game options
-  const [difficulty, setDifficulty] = useState(4) // Search depth: 1-8
-  const [playerColor, setPlayerColor] = useState('white') // 'white' or 'black'
-  const [showCoordinates, setShowCoordinates] = useState(true)
-  const [showLastMove, setShowLastMove] = useState(true)
-  const [soundEnabled, setSoundEnabled] = useState(true)
-  const [boardTheme, setBoardTheme] = useState('classic') // 'classic', 'blue', 'green', 'purple'
-  const [gameMode, setGameMode] = useState('ai') // 'ai', 'local', 'analysis'
   
   // Game state tracking
   const [moveHistory, setMoveHistory] = useState([])
@@ -546,102 +549,20 @@ function Game() {
           ← Back
         </button>
         <h1>Chess vs AI</h1>
-        <button className="new-game-button" onClick={resetGame}>
-          New Game
-        </button>
+        <div className="header-actions">
+          <button className="action-btn hint-btn" onClick={getHint} disabled={isThinking || gameMode !== 'ai'}>
+            💡 Hint
+          </button>
+          <button className="action-btn undo-btn" onClick={undoMove} disabled={moveHistory.length === 0}>
+            ↶ Undo
+          </button>
+          <button className="new-game-button" onClick={resetGame}>
+            New Game
+          </button>
+        </div>
       </div>
 
       <div className="game-container">
-        {/* Left sidebar - Game Options */}
-        <div className="options-panel">
-          <div className="options-section">
-            <h3>⚙️ Game Options</h3>
-            
-            <div className="option-group">
-              <label>Difficulty</label>
-              <select value={difficulty} onChange={(e) => setDifficulty(Number(e.target.value))}>
-                <option value={1}>1 - Beginner</option>
-                <option value={2}>2 - Easy</option>
-                <option value={3}>3 - Medium</option>
-                <option value={4}>4 - Normal</option>
-                <option value={5}>5 - Hard</option>
-                <option value={6}>6 - Expert</option>
-                <option value={7}>7 - Master</option>
-                <option value={8}>8 - Grand Master</option>
-              </select>
-            </div>
-
-            <div className="option-group">
-              <label>Game Mode</label>
-              <select value={gameMode} onChange={(e) => setGameMode(e.target.value)}>
-                <option value="ai">vs AI</option>
-                <option value="local">Local 2 Player</option>
-                <option value="analysis">Analysis Mode</option>
-              </select>
-            </div>
-
-            <div className="option-group">
-              <label>Play As</label>
-              <select value={playerColor} onChange={(e) => setPlayerColor(e.target.value)}>
-                <option value="white">White</option>
-                <option value="black">Black</option>
-              </select>
-            </div>
-
-            <div className="option-group">
-              <label>Board Theme</label>
-              <select value={boardTheme} onChange={(e) => setBoardTheme(e.target.value)}>
-                <option value="classic">Classic Brown</option>
-                <option value="blue">Ocean Blue</option>
-                <option value="green">Forest Green</option>
-                <option value="purple">Royal Purple</option>
-              </select>
-            </div>
-
-            <div className="option-group checkbox-group">
-              <label>
-                <input 
-                  type="checkbox" 
-                  checked={showCoordinates} 
-                  onChange={(e) => setShowCoordinates(e.target.checked)}
-                />
-                Show Coordinates
-              </label>
-            </div>
-
-            <div className="option-group checkbox-group">
-              <label>
-                <input 
-                  type="checkbox" 
-                  checked={showLastMove} 
-                  onChange={(e) => setShowLastMove(e.target.checked)}
-                />
-                Highlight Last Move
-              </label>
-            </div>
-
-            <div className="option-group checkbox-group">
-              <label>
-                <input 
-                  type="checkbox" 
-                  checked={soundEnabled} 
-                  onChange={(e) => setSoundEnabled(e.target.checked)}
-                />
-                Sound Effects
-              </label>
-            </div>
-          </div>
-
-          <div className="action-buttons">
-            <button className="action-btn hint-btn" onClick={getHint} disabled={isThinking || gameMode !== 'ai'}>
-              💡 Hint
-            </button>
-            <button className="action-btn undo-btn" onClick={undoMove} disabled={moveHistory.length === 0}>
-              ↶ Undo
-            </button>
-          </div>
-        </div>
-
         {/* Center - Chessboard */}
         <div className="board-section">
           <div className="board-wrapper">
