@@ -68,6 +68,7 @@ function Game() {
   const [showHint, setShowHint] = useState(false)
   const [hintMove, setHintMove] = useState(null)
   const [promotionPending, setPromotionPending] = useState(null)
+  const [currentTurn, setCurrentTurn] = useState('white')
 
   // Initialize a new game
   useEffect(() => {
@@ -75,11 +76,19 @@ function Game() {
       try {
         const response = await axios.post(`${API_URL}/api/newgame`)
         setGameId('connected')
-        setStatus('Your move!')
+        if (gameMode === 'local') {
+          setStatus('White to move')
+        } else {
+          setStatus('Your move!')
+        }
       } catch (error) {
         console.error('Backend connection failed:', error)
         setGameId('offline-mode')
-        setStatus('Offline mode (backend unavailable)')
+        if (gameMode === 'local') {
+          setStatus('White to move (Offline mode)')
+        } else {
+          setStatus('Offline mode (backend unavailable)')
+        }
       }
     }
     initGame()
@@ -400,13 +409,21 @@ function Game() {
       // First click - select piece
       const piece = board[row][col]
       
-      if (piece && piece === piece.toUpperCase()) {
-        // Only select white pieces (uppercase) since we play as white
-        setSelectedSquare({ row, col })
+      if (piece) {
+        // In local mode, allow selecting pieces based on turn
+        // In AI mode, only allow selecting white pieces
+        const isWhitePiece = piece === piece.toUpperCase()
+        const canSelect = gameMode === 'local' 
+          ? (currentTurn === 'white' && isWhitePiece) || (currentTurn === 'black' && !isWhitePiece)
+          : isWhitePiece
         
-        // Get and display legal moves
-        const moves = getLegalMoves(row, col)
-        setLegalMoves(moves)
+        if (canSelect) {
+          setSelectedSquare({ row, col })
+          
+          // Get and display legal moves
+          const moves = getLegalMoves(row, col)
+          setLegalMoves(moves)
+        }
       }
     }
   }
@@ -458,7 +475,15 @@ function Game() {
       
       setBoard(newBoard)
       setLastMove({ from: { row: fromRow, col: fromCol }, to: { row: toRow, col: toCol } })
-      setStatus('Your move! (Offline mode - no AI opponent)')
+      
+      if (gameMode === 'local') {
+        // Switch turns in local multiplayer
+        const nextTurn = currentTurn === 'white' ? 'black' : 'white'
+        setCurrentTurn(nextTurn)
+        setStatus(`${nextTurn === 'white' ? 'White' : 'Black'} to move`)
+      } else {
+        setStatus('Your move! (Offline mode - no AI opponent)')
+      }
       return
     }
 
@@ -638,7 +663,14 @@ function Game() {
           setStatus('Your move!')
         }
       } else {
-        setStatus(gameMode === 'local' ? 'Other player\'s turn' : 'Your move!')
+        if (gameMode === 'local') {
+          // Switch turns in local multiplayer
+          const nextTurn = currentTurn === 'white' ? 'black' : 'white'
+          setCurrentTurn(nextTurn)
+          setStatus(`${nextTurn === 'white' ? 'White' : 'Black'} to move`)
+        } else {
+          setStatus('Your move!')
+        }
       }
     } catch (error) {
       console.error('Error making move:', error)
@@ -690,14 +722,25 @@ function Game() {
     setEvaluation(0)
     setShowHint(false)
     setHintMove(null)
+    setCurrentTurn('white')
     
     // Reinitialize backend
     if (gameId !== 'offline-mode') {
       try {
         await axios.post(`${API_URL}/api/newgame`)
-        setStatus('Your move!')
+        if (gameMode === 'local') {
+          setStatus('White to move')
+        } else {
+          setStatus('Your move!')
+        }
       } catch (error) {
         console.error('Error resetting game:', error)
+      }
+    } else {
+      if (gameMode === 'local') {
+        setStatus('White to move (Offline mode)')
+      } else {
+        setStatus('Your move! (Offline mode)')
       }
     }
   }
@@ -708,7 +751,7 @@ function Game() {
         <button className="back-button" onClick={() => navigate('/play')}>
           ← Back
         </button>
-        <h1>Chess vs AI</h1>
+        <h1>{gameMode === 'local' ? 'Player vs Player' : gameMode === 'analysis' ? 'Analysis Mode' : 'Chess vs AI'}</h1>
         <div className="header-actions">
           <button className="action-btn hint-btn" onClick={getHint} disabled={isThinking || gameMode !== 'ai'}>
             💡 Hint
