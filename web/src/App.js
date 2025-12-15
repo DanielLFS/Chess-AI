@@ -33,63 +33,66 @@ function App() {
     }
   }
 
-  const onDrop = async (sourceSquare, targetSquare, piece) => {
+  const onDrop = (sourceSquare, targetSquare, piece) => {
     if (thinking) return false
 
+    // Try move in chess.js first
+    const gameCopy = new Chess(game.fen())
+    let move = null
+
+    // Check for promotion
+    if (piece[1] === 'P' && (targetSquare[1] === '8' || targetSquare[1] === '1')) {
+      move = gameCopy.move({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: 'q'
+      })
+    } else {
+      move = gameCopy.move({
+        from: sourceSquare,
+        to: targetSquare
+      })
+    }
+
+    if (move === null) {
+      setStatus('Illegal move!')
+      return false
+    }
+
+    // Update game immediately for responsiveness
+    setGame(gameCopy)
+    setPosition(gameCopy.fen())
+
+    // Send to backend and get engine move
+    handleMove(move, gameCopy)
+
+    return true
+  }
+
+  const handleMove = async (move, gameCopy) => {
     try {
-      // Try move in chess.js
-      const gameCopy = new Chess(game.fen())
-      let move = null
-
-      // Check for promotion
-      if (piece[1] === 'P' && (targetSquare[1] === '8' || targetSquare[1] === '1')) {
-        move = gameCopy.move({
-          from: sourceSquare,
-          to: targetSquare,
-          promotion: 'q'
-        })
-      } else {
-        move = gameCopy.move({
-          from: sourceSquare,
-          to: targetSquare
-        })
-      }
-
-      if (move === null) {
-        setStatus('Illegal move!')
-        return false
-      }
-
       // Send to backend
       const response = await axios.post(`${API_URL}/api/move`, {
         move: move.from + move.to + (move.promotion || '')
       })
 
-      if (!response.data) return false
-
-      // Update game
-      setGame(gameCopy)
-      setPosition(gameCopy.fen())
-
       // Check game over
       if (response.data.is_checkmate) {
         setStatus('Checkmate! You win!')
-        return true
+        return
       }
       if (response.data.is_stalemate) {
         setStatus('Stalemate!')
-        return true
+        return
       }
 
       // AI's turn
       setStatus('AI is thinking...')
       setTimeout(() => makeEngineMove(gameCopy), 500)
 
-      return true
     } catch (error) {
       console.error('Error:', error)
       setStatus('Error making move')
-      return false
     }
   }
 
