@@ -118,7 +118,7 @@ async def make_move(request: MoveRequest):
         to_sq = uci_to_square(move_str[2:4])
         promotion = move_str[4] if len(move_str) > 4 else None
         
-        # Find legal move - NO inversion needed here, use actual current player
+        # Find legal move
         legal_moves = generate_legal_moves_numba(board.state, int(board.current_player))
         move = None
         
@@ -250,4 +250,6 @@ def get_legal_moves_uci(board: Board) -> List[str]:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
