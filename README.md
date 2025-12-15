@@ -1,6 +1,88 @@
-# Chess Engine
+# Chess AI - Full Stack Application
 
-A high-performance chess engine built for speed and neural network integration.
+A tournament-ready chess engine with beautiful web interface. Play against a highly optimized AI with 11 search techniques, real-time analysis, and professional UCI protocol support.
+
+🎮 **[Play Online](#)** | 📊 **[View Benchmarks](#benchmarks)** | 🤖 **[Engine Details](#engine)**
+
+---
+
+## 🎯 Quick Start
+
+### Play Locally
+
+```bash
+# 1. Start API server
+cd api
+pip install -r requirements.txt
+python main.py
+
+# 2. Start web app (new terminal)
+cd web
+npm install
+npm run dev
+```
+
+Visit **http://localhost:3000** to play!
+
+### Deploy to Vercel
+
+1. Push to GitHub
+2. Import to Vercel
+3. Set **Root Directory** to `web`
+4. Deploy!
+
+---
+
+## 📁 Project Structure
+
+```
+Chess-AI/
+├── api/                    # REST API Layer
+│   ├── main.py            # FastAPI endpoints
+│   └── requirements.txt   # Python dependencies
+│
+├── web/                    # Frontend Layer
+│   ├── src/
+│   │   ├── App.jsx        # React chess UI
+│   │   └── App.css        # Styling
+│   ├── package.json       # Node dependencies
+│   └── vite.config.js     # Build config
+│
+└── backend/                # Engine Layer
+    ├── engine/            # Chess engine core
+    │   ├── board.py       # Bitboard representation
+    │   ├── search.py      # Search algorithm (739 lines, 11 optimizations)
+    │   ├── evaluation.py  # Position evaluation
+    │   ├── moves.py       # Move generation
+    │   └── transposition.py # TT cache
+    ├── uci/               # UCI protocol
+    ├── tests/             # Engine tests & benchmarks
+    └── neural/            # Neural network components
+```
+
+---
+
+## ✨ Features
+
+### Web Interface
+- 🎨 Beautiful drag-and-drop chessboard
+- 📊 Real-time engine analysis
+- 🎯 Principal variation display
+- ⚙️ Adjustable difficulty (depth 3-8)
+- 📱 Responsive mobile-friendly design
+- 🎮 Instant move validation
+
+### Chess Engine
+- 🏆 **Tournament-ready** with UCI protocol
+- 🚀 **82-92% node reduction** vs baseline
+- ⚡ **19-29k NPS** average performance
+- 🎯 **Depth 8 in 1m23s** (starting position)
+- 💡 **Instant mate finding** (mate in 3: 0.01s)
+- 🧠 **11 search optimizations** implemented
+
+---
+
+## 🏗️ Architecture
 
 ---
 

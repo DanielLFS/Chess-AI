@@ -51,6 +51,17 @@ Thumbs.db
 htmlcov/
 .tox/
 
+# Node.js / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+web/dist/
+web/.vite/
+.env.local
+.env.*.local
+
 # Jupyter
 .ipynb_checkpoints/
 

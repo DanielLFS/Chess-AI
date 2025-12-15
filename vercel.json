@@ -1,5 +1,14 @@
 {
-  "github": {
-    "silent": true
-  }
+  "version": 2,
+  "buildCommand": "cd web && npm install && npm run build",
+  "outputDirectory": "web/dist",
+  "installCommand": "cd web && npm install",
+  "devCommand": "cd web && npm run dev",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/web/index.html"
+    }
+  ]
 }
