@@ -218,17 +218,23 @@ async def get_position():
 # Helper functions
 
 def uci_to_square(uci: str) -> int:
-    """Convert UCI (e.g., 'e2') to square index (0-63)."""
+    """Convert UCI (e.g., 'e2') to square index (0-63).
+    Note: Internal board has rank 8 at squares 0-7, rank 1 at squares 56-63 (flipped from UCI)."""
     file = ord(uci[0]) - ord('a')
     rank = int(uci[1]) - 1
-    return rank * 8 + file
+    # Flip rank: UCI rank 1 (squares 0-7) -> internal rank 8 (squares 56-63)
+    flipped_rank = 7 - rank
+    return flipped_rank * 8 + file
 
 
 def square_to_uci(square: int) -> str:
-    """Convert square index to UCI."""
+    """Convert square index to UCI.
+    Note: Internal board has rank 8 at squares 0-7, rank 1 at squares 56-63 (flipped from UCI)."""
     file = chr((square % 8) + ord('a'))
-    rank = str((square // 8) + 1)
-    return file + rank
+    internal_rank = square // 8
+    # Flip back: internal rank 0 (squares 0-7) -> UCI rank 8
+    uci_rank = 8 - internal_rank
+    return file + str(uci_rank)
 
 
 def move_to_uci(move: int) -> str:
