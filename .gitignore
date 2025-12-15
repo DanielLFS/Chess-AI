@@ -52,14 +52,17 @@ htmlcov/
 .tox/
 
 # Node.js / Frontend
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+web/build/
 web/dist/
 web/.vite/
 .env.local
 .env.*.local
+package-lock.json
 
 # Jupyter
 .ipynb_checkpoints/
@@ -67,6 +70,7 @@ web/.vite/
 # Backups
 backups/
 *.bak
+BACKUP_*
 
 # C++ Extensions
 *.o
