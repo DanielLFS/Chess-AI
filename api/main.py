@@ -119,12 +119,7 @@ async def make_move(request: MoveRequest):
         promotion = move_str[4] if len(move_str) > 4 else None
         
         # Find legal move
-        # Debug: Try both with and without inversion to see which works
-        current_player = int(board.current_player)
-        inverted_player = 1 - current_player
-        
-        # Try without inversion first
-        legal_moves = generate_legal_moves_numba(board.state, current_player)
+        legal_moves = generate_legal_moves_numba(board.state, int(board.current_player))
         move = None
         
         for legal_move in legal_moves:
@@ -255,9 +250,7 @@ def move_to_uci(move: int) -> str:
 
 def get_legal_moves_uci(board: Board) -> List[str]:
     """Get all legal moves in UCI format."""
-    # Note: Player inversion needed - without it, returns wrong side's moves
-    inverted_player = 1 - int(board.current_player)
-    legal_moves = generate_legal_moves_numba(board.state, inverted_player)
+    legal_moves = generate_legal_moves_numba(board.state, int(board.current_player))
     return [move_to_uci(move) for move in legal_moves]
 
 

@@ -51,9 +51,7 @@ function Game() {
   useEffect(() => {
     const initGame = async () => {
       try {
-        console.log('Connecting to backend at:', API_URL)
         const response = await axios.post(`${API_URL}/api/newgame`)
-        console.log('Backend response:', response.data)
         setGameId('connected')
         setStatus('Your move!')
       } catch (error) {
@@ -67,13 +65,8 @@ function Game() {
 
   // Get legal moves for a selected piece
   const getLegalMoves = (row, col) => {
-    console.log('getLegalMoves called for', row, col)
-    console.log('gameId:', gameId)
-    
-    // Allow getting moves even if gameId isn't set yet
     try {
       const moves = calculateLegalMoves(row, col, board)
-      console.log('Calculated moves:', moves)
       return moves
     } catch (error) {
       console.error('Error getting legal moves:', error)
@@ -228,7 +221,6 @@ function Game() {
     const piece = board[row][col]
     // Allow dragging white pieces (uppercase) since we play as white
     if (piece && piece === piece.toUpperCase()) {
-      console.log('Drag started:', row, col, piece)
       e.dataTransfer.effectAllowed = 'move'
       e.dataTransfer.setData('text/plain', JSON.stringify({ row, col }))
       
@@ -253,15 +245,11 @@ function Game() {
       const data = e.dataTransfer.getData('text/plain')
       const { row: fromRow, col: fromCol } = JSON.parse(data)
       
-      console.log('Dropped from', fromRow, fromCol, 'to', toRow, toCol)
-      
       // Check if it's a legal move
       const isLegalMove = legalMoves.some(move => move.row === toRow && move.col === toCol)
       
       if (isLegalMove) {
         await makeMove(fromRow, fromCol, toRow, toCol)
-      } else {
-        console.log('Not a legal move')
       }
     } catch (error) {
       console.error('Drop error:', error)
@@ -279,47 +267,29 @@ function Game() {
   }
 
   const handleSquareClick = async (row, col) => {
-    console.log('=== SQUARE CLICKED ===')
-    console.log('Position:', row, col)
-    console.log('Piece at position:', board[row][col])
-    console.log('Currently selected:', selectedSquare)
-    console.log('Legal moves:', legalMoves)
-    
     if (selectedSquare) {
-      console.log('Second click - attempting move')
       // Check if clicked square is a legal move
       const isLegalMove = legalMoves.some(move => move.row === row && move.col === col)
-      console.log('Is legal move?', isLegalMove)
       
       if (isLegalMove) {
-        console.log('Making move from', selectedSquare, 'to', {row, col})
         // Make the move
         await makeMove(selectedSquare.row, selectedSquare.col, row, col)
-      } else {
-        console.log('Not a legal move, deselecting')
       }
       
       // Deselect and clear legal moves
       setSelectedSquare(null)
       setLegalMoves([])
     } else {
-      console.log('First click - trying to select piece')
       // First click - select piece
       const piece = board[row][col]
-      console.log('Piece:', piece, 'Is white?', piece && piece === piece.toUpperCase())
       
       if (piece && piece === piece.toUpperCase()) {
         // Only select white pieces (uppercase) since we play as white
-        console.log('Selecting white piece:', piece)
         setSelectedSquare({ row, col })
         
         // Get and display legal moves
         const moves = getLegalMoves(row, col)
-        console.log('Setting legal moves:', moves)
         setLegalMoves(moves)
-        console.log('Legal moves state should now be:', moves)
-      } else {
-        console.log('Not a white piece, ignoring click')
       }
     }
   }
@@ -349,16 +319,10 @@ function Game() {
       const toSquare = toChessNotation(toRow, toCol)
       const moveStr = fromSquare + toSquare
       
-      console.log('Sending move to backend:', moveStr)
-      console.log('From position:', {fromRow, fromCol}, 'To position:', {toRow, toCol})
-      console.log('Piece at from position:', board[fromRow][fromCol])
-      
       // Send move to backend for validation
       const response = await axios.post(`${API_URL}/api/move`, {
         move: moveStr
       })
-      
-      console.log('Move accepted! Backend response:', response.data)
       
       // Update board immediately after backend confirms
       const newBoard = [...board.map(row => [...row])]
@@ -386,14 +350,10 @@ function Game() {
         depth: 4
       })
       
-      console.log('AI response:', aiResponse.data)
-      
       if (aiResponse.data.best_move) {
         const aiMove = aiResponse.data.best_move
         const from = fromChessNotation(aiMove.substring(0, 2))
         const to = fromChessNotation(aiMove.substring(2, 4))
-        
-        console.log('AI move:', aiMove, 'from', from, 'to', to)
         
         // Apply AI move to backend first
         await axios.post(`${API_URL}/api/move`, {
@@ -413,7 +373,6 @@ function Game() {
       console.error('Error making move:', error)
       const errorMsg = error.response?.data?.detail || error.message
       setStatus('Error: ' + errorMsg)
-      console.log('Move failed, error details:', error.response?.data)
     } finally {
       setIsThinking(false)
     }
@@ -435,18 +394,11 @@ function Game() {
         </button>
         <h1>Chess vs AI</h1>
         <button className="new-game-button" onClick={() => {
-          console.log('TEST: New Game button clicked!')
           setBoard(INITIAL_BOARD)
           setSelectedSquare(null)
           setLegalMoves([])
         }}>
           New Game
-        </button>
-        <button onClick={() => {
-          alert('Button clicked! Check console for details.')
-          console.log('TEST BUTTON WORKS! Board:', board, 'Selected:', selectedSquare, 'Legal:', legalMoves)
-        }}>
-          Test Click
         </button>
       </div>
 
