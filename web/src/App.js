@@ -4,6 +4,9 @@ import { Chessboard } from 'react-chessboard'
 import axios from 'axios'
 import './App.css'
 
+// API URL - uses environment variable or defaults to proxy
+const API_URL = process.env.REACT_APP_API_URL || ''
+
 function App() {
   const [game, setGame] = useState(new Chess())
   const [position, setPosition] = useState(game.fen())
@@ -18,7 +21,7 @@ function App() {
 
   const newGame = async () => {
     try {
-      await axios.post('/api/newgame')
+      await axios.post(`${API_URL}/api/newgame`)
       const freshGame = new Chess()
       setGame(freshGame)
       setPosition(freshGame.fen())
@@ -58,7 +61,7 @@ function App() {
       }
 
       // Send to backend
-      const response = await axios.post('/api/move', {
+      const response = await axios.post(`${API_URL}/api/move`, {
         move: move.from + move.to + (move.promotion || '')
       })
 
@@ -93,7 +96,7 @@ function App() {
   const makeEngineMove = async (currentGame) => {
     setThinking(true)
     try {
-      const response = await axios.post('/api/engine', { depth })
+      const response = await axios.post(`${API_URL}/api/engine`, { depth })
 
       const engineMove = response.data.best_move
       const from = engineMove.substring(0, 2)

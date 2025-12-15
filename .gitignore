@@ -62,6 +62,7 @@ web/dist/
 web/.vite/
 .env.local
 .env.*.local
+web/.env
 /package-lock.json
 
 # Jupyter
