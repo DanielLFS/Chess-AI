@@ -118,10 +118,8 @@ async def make_move(request: MoveRequest):
         to_sq = uci_to_square(move_str[2:4])
         promotion = move_str[4] if len(move_str) > 4 else None
         
-        # Find legal move
-        # BUGFIX: Same player inversion needed here
-        inverted_player = 1 - int(board.current_player)
-        legal_moves = generate_legal_moves_numba(board.state, inverted_player)
+        # Find legal move - NO inversion needed here, use actual current player
+        legal_moves = generate_legal_moves_numba(board.state, int(board.current_player))
         move = None
         
         for legal_move in legal_moves:
@@ -246,10 +244,7 @@ def move_to_uci(move: int) -> str:
 
 def get_legal_moves_uci(board: Board) -> List[str]:
     """Get all legal moves in UCI format."""
-    # BUGFIX: generate_legal_moves_numba expects inverted player (0=black, 1=white)
-    # but board.current_player uses Color enum (0=white, 1=black)
-    inverted_player = 1 - int(board.current_player)
-    legal_moves = generate_legal_moves_numba(board.state, inverted_player)
+    legal_moves = generate_legal_moves_numba(board.state, int(board.current_player))
     return [move_to_uci(move) for move in legal_moves]
 
 
