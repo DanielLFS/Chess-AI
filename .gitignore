@@ -62,7 +62,7 @@ web/dist/
 web/.vite/
 .env.local
 .env.*.local
-package-lock.json
+/package-lock.json
 
 # Jupyter
 .ipynb_checkpoints/
