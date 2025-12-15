@@ -45,7 +45,6 @@ function Game() {
   // Get settings from GameSetup page
   const settings = location.state || {}
   const difficulty = settings.difficulty || 4
-  const playerColor = settings.playerColor || 'white'
   const showCoordinates = settings.showCoordinates !== undefined ? settings.showCoordinates : true
   const showLastMove = settings.showLastMove !== undefined ? settings.showLastMove : true
   const soundEnabled = settings.soundEnabled !== undefined ? settings.soundEnabled : true
@@ -74,7 +73,7 @@ function Game() {
   useEffect(() => {
     const initGame = async () => {
       try {
-        const response = await axios.post(`${API_URL}/api/newgame`)
+        await axios.post(`${API_URL}/api/newgame`)
         setGameId('connected')
         if (gameMode === 'local') {
           setStatus('White to move')
@@ -92,13 +91,7 @@ function Game() {
       }
     }
     initGame()
-  }, [])
-
-  // Helper function to get piece value for captured pieces
-  const getPieceValue = (piece) => {
-    const values = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 }
-    return values[piece.toLowerCase()] || 0
-  }
+  }, [gameMode])
 
   // Helper function to play move sound
   const playMoveSound = () => {
