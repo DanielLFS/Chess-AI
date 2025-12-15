@@ -133,7 +133,7 @@ function Game() {
   // Get legal moves for a selected piece
   const getLegalMoves = (row, col) => {
     try {
-      const moves = calculateLegalMoves(row, col, board)
+      const moves = calculateLegalMoves(row, col, board, lastMove)
       return moves
     } catch (error) {
       console.error('Error getting legal moves:', error)
@@ -142,7 +142,7 @@ function Game() {
   }
 
   // Basic legal move calculation (simplified - shows all possible squares)
-  const calculateLegalMoves = (row, col, currentBoard) => {
+  const calculateLegalMoves = (row, col, currentBoard, lastMove) => {
     const piece = currentBoard[row][col]
     if (!piece) return []
     
@@ -173,6 +173,19 @@ function Game() {
           const targetPiece = currentBoard[targetRow][targetCol]
           if (targetPiece && (targetPiece === targetPiece.toLowerCase()) !== (piece === piece.toLowerCase())) {
             moves.push({ row: targetRow, col: targetCol })
+          }
+          
+          // En passant: check if we can capture a pawn that just moved 2 squares
+          if (lastMove) {
+            const lastMovedPiece = currentBoard[lastMove.to.row]?.[lastMove.to.col]
+            const isEnemyPawn = lastMovedPiece && lastMovedPiece.toLowerCase() === 'p' && 
+                                (lastMovedPiece === lastMovedPiece.toLowerCase()) !== (piece === piece.toLowerCase())
+            const movedTwoSquares = Math.abs(lastMove.to.row - lastMove.from.row) === 2
+            const isAdjacentPawn = lastMove.to.row === row && lastMove.to.col === targetCol
+            
+            if (isEnemyPawn && movedTwoSquares && isAdjacentPawn) {
+              moves.push({ row: targetRow, col: targetCol, isEnPassant: true })
+            }
           }
         }
       }
@@ -398,8 +411,15 @@ function Game() {
     if (gameId === 'offline-mode') {
       const newBoard = [...board.map(row => [...row])]
       const piece = newBoard[fromRow][fromCol]
+      const capturedPiece = newBoard[toRow][toCol]
       newBoard[toRow][toCol] = piece
       newBoard[fromRow][fromCol] = null
+      
+      // Handle en passant in offline mode
+      if ((piece === 'P' || piece === 'p') && Math.abs(toCol - fromCol) === 1 && !capturedPiece) {
+        const capturedPawnRow = fromRow
+        newBoard[capturedPawnRow][toCol] = null
+      }
       
       // Handle castling in offline mode
       if ((piece === 'K' || piece === 'k') && Math.abs(toCol - fromCol) === 2) {
@@ -420,6 +440,7 @@ function Game() {
       }
       
       setBoard(newBoard)
+      setLastMove({ from: { row: fromRow, col: fromCol }, to: { row: toRow, col: toCol } })
       setStatus('Your move! (Offline mode - no AI opponent)')
       return
     }
@@ -454,6 +475,21 @@ function Game() {
       const piece = newBoard[fromRow][fromCol]
       newBoard[toRow][toCol] = piece
       newBoard[fromRow][fromCol] = null
+      
+      // Handle en passant - remove the captured pawn
+      if ((piece === 'P' || piece === 'p') && Math.abs(toCol - fromCol) === 1 && !capturedPiece) {
+        // This is en passant (diagonal pawn move with no piece at destination)
+        const capturedPawnRow = fromRow
+        const capturedPawn = newBoard[capturedPawnRow][toCol]
+        if (capturedPawn) {
+          const isWhitePiece = capturedPawn === capturedPawn.toUpperCase()
+          setCapturedPieces(prev => ({
+            ...prev,
+            [isWhitePiece ? 'white' : 'black']: [...prev[isWhitePiece ? 'white' : 'black'], capturedPawn]
+          }))
+          newBoard[capturedPawnRow][toCol] = null
+        }
+      }
       
       // Handle castling - move the rook as well
       if ((piece === 'K' || piece === 'k') && Math.abs(toCol - fromCol) === 2) {
@@ -528,6 +564,20 @@ function Game() {
           const aiPiece = aiBoard[from.row][from.col]
           aiBoard[to.row][to.col] = aiPiece
           aiBoard[from.row][from.col] = null
+          
+          // Handle en passant for AI - remove the captured pawn
+          if ((aiPiece === 'P' || aiPiece === 'p') && Math.abs(to.col - from.col) === 1 && !aiCapturedPiece) {
+            const capturedPawnRow = from.row
+            const capturedPawn = aiBoard[capturedPawnRow][to.col]
+            if (capturedPawn) {
+              const isWhitePiece = capturedPawn === capturedPawn.toUpperCase()
+              setCapturedPieces(prev => ({
+                ...prev,
+                [isWhitePiece ? 'white' : 'black']: [...prev[isWhitePiece ? 'white' : 'black'], capturedPawn]
+              }))
+              aiBoard[capturedPawnRow][to.col] = null
+            }
+          }
           
           // Handle castling for AI - move the rook as well
           if ((aiPiece === 'K' || aiPiece === 'k') && Math.abs(to.col - from.col) === 2) {
