@@ -151,6 +151,8 @@ function App() {
               position={position}
               onPieceDrop={onDrop}
               boardWidth={560}
+              areArrowsAllowed={false}
+              arePiecesDraggable={!thinking}
               customBoardStyle={{
                 borderRadius: '10px',
                 boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
