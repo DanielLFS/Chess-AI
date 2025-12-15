@@ -67,6 +67,7 @@ function Game() {
   const [thinkingTime, setThinkingTime] = useState(0)
   const [showHint, setShowHint] = useState(false)
   const [hintMove, setHintMove] = useState(null)
+  const [promotionPending, setPromotionPending] = useState(null)
 
   // Initialize a new game
   useEffect(() => {
@@ -379,8 +380,17 @@ function Game() {
       const isLegalMove = legalMoves.some(move => move.row === row && move.col === col)
       
       if (isLegalMove) {
-        // Make the move
-        await makeMove(selectedSquare.row, selectedSquare.col, row, col)
+        // Check if this is a pawn promotion
+        const piece = board[selectedSquare.row][selectedSquare.col]
+        const isPromotion = (piece === 'P' && row === 0) || (piece === 'p' && row === 7)
+        
+        if (isPromotion) {
+          // Show promotion dialog
+          setPromotionPending({ fromRow: selectedSquare.row, fromCol: selectedSquare.col, toRow: row, toCol: col })
+        } else {
+          // Make the move normally
+          await makeMove(selectedSquare.row, selectedSquare.col, row, col)
+        }
       }
       
       // Deselect and clear legal moves
@@ -401,7 +411,7 @@ function Game() {
     }
   }
 
-  const makeMove = async (fromRow, fromCol, toRow, toCol) => {
+  const makeMove = async (fromRow, fromCol, toRow, toCol, promotion = 'q') => {
     if (!gameId) {
       setStatus('Error: Game not initialized')
       return
@@ -414,6 +424,13 @@ function Game() {
       const capturedPiece = newBoard[toRow][toCol]
       newBoard[toRow][toCol] = piece
       newBoard[fromRow][fromCol] = null
+      
+      // Handle promotion in offline mode
+      const isPromotion = (piece === 'P' && toRow === 0) || (piece === 'p' && toRow === 7)
+      if (isPromotion) {
+        const isWhitePiece = piece === piece.toUpperCase()
+        newBoard[toRow][toCol] = isWhitePiece ? promotion.toUpperCase() : promotion.toLowerCase()
+      }
       
       // Handle en passant in offline mode
       if ((piece === 'P' || piece === 'p') && Math.abs(toCol - fromCol) === 1 && !capturedPiece) {
@@ -453,7 +470,9 @@ function Game() {
       
       const fromSquare = toChessNotation(fromRow, fromCol)
       const toSquare = toChessNotation(toRow, toCol)
-      const moveStr = fromSquare + toSquare
+      const piece = board[fromRow][fromCol]
+      const isPromotion = (piece === 'P' && toRow === 0) || (piece === 'p' && toRow === 7)
+      const moveStr = fromSquare + toSquare + (isPromotion ? promotion : '')
       
       // Send move to backend for validation
       const response = await axios.post(`${API_URL}/api/move`, {
@@ -473,7 +492,10 @@ function Game() {
       // Update board immediately after backend confirms
       const newBoard = [...board.map(row => [...row])]
       const piece = newBoard[fromRow][fromCol]
-      newBoard[toRow][toCol] = piece
+      const isPromotion = (piece === 'P' && toRow === 0) || (piece === 'p' && toRow === 7)
+      const isWhitePiece = piece === piece.toUpperCase()
+      const promotedPiece = isPromotion ? (isWhitePiece ? promotion.toUpperCase() : promotion.toLowerCase()) : piece
+      newBoard[toRow][toCol] = promotedPiece
       newBoard[fromRow][fromCol] = null
       
       // Handle en passant - remove the captured pawn
@@ -562,7 +584,12 @@ function Game() {
           // Update board with AI move
           const aiBoard = [...newBoard.map(row => [...row])]
           const aiPiece = aiBoard[from.row][from.col]
-          aiBoard[to.row][to.col] = aiPiece
+          // Check for AI promotion (moves like e7e8q)
+          const aiPromotion = aiMove.length > 4 ? aiMove[4] : null
+          const isAiPromotion = (aiPiece === 'P' && to.row === 0) || (aiPiece === 'p' && to.row === 7)
+          const isWhiteAiPiece = aiPiece === aiPiece.toUpperCase()
+          const promotedAiPiece = isAiPromotion && aiPromotion ? (isWhiteAiPiece ? aiPromotion.toUpperCase() : aiPromotion.toLowerCase()) : aiPiece
+          aiBoard[to.row][to.col] = promotedAiPiece
           aiBoard[from.row][from.col] = null
           
           // Handle en passant for AI - remove the captured pawn
@@ -835,6 +862,39 @@ function Game() {
           </div>
         </div>
       </div>
+
+      {/* Promotion Dialog */}
+      {promotionPending && (
+        <div className="promotion-overlay" onClick={() => setPromotionPending(null)}>
+          <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Promote Pawn</h3>
+            <div className="promotion-options">
+              {['q', 'r', 'b', 'n'].map(piece => {
+                const isWhite = board[promotionPending.fromRow][promotionPending.fromCol] === 'P'
+                const displayPiece = isWhite ? piece.toUpperCase() : piece
+                return (
+                  <button 
+                    key={piece}
+                    className="promotion-piece"
+                    onClick={async () => {
+                      await makeMove(
+                        promotionPending.fromRow, 
+                        promotionPending.fromCol, 
+                        promotionPending.toRow, 
+                        promotionPending.toCol,
+                        piece
+                      )
+                      setPromotionPending(null)
+                    }}
+                  >
+                    {PIECES[displayPiece]}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
