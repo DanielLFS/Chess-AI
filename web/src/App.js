@@ -33,35 +33,43 @@ function App() {
     }
   }
 
-  const onDrop = (sourceSquare, targetSquare, piece) => {
-    if (thinking) return false
+  const onDrop = (sourceSquare, targetSquare) => {
+    if (thinking) {
+      console.log('AI is thinking, cannot move')
+      return false
+    }
+
+    console.log(`Attempting move: ${sourceSquare} -> ${targetSquare}`)
 
     // Try move in chess.js first
     const gameCopy = new Chess(game.fen())
     let move = null
 
-    // Check for promotion
-    if (piece[1] === 'P' && (targetSquare[1] === '8' || targetSquare[1] === '1')) {
+    try {
+      // Try the move
       move = gameCopy.move({
         from: sourceSquare,
         to: targetSquare,
-        promotion: 'q'
+        promotion: 'q' // Always promote to queen for now
       })
-    } else {
-      move = gameCopy.move({
-        from: sourceSquare,
-        to: targetSquare
-      })
-    }
-
-    if (move === null) {
+    } catch (error) {
+      console.log('Move failed:', error)
       setStatus('Illegal move!')
       return false
     }
 
+    if (move === null) {
+      console.log('Move returned null')
+      setStatus('Illegal move!')
+      return false
+    }
+
+    console.log('Move successful:', move)
+
     // Update game immediately for responsiveness
     setGame(gameCopy)
     setPosition(gameCopy.fen())
+    setStatus('Your move!')
 
     // Send to backend and get engine move
     handleMove(move, gameCopy)
