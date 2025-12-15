@@ -140,10 +140,125 @@ function Game() {
     setStatus('Undo not fully implemented yet')
   }
 
+  // Check if a king is under attack
+  const isSquareAttacked = (kingRow, kingCol, currentBoard, byWhite) => {
+    // Check all opponent pieces to see if they can attack this square
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const piece = currentBoard[row][col]
+        if (!piece) continue
+        
+        const isPieceWhite = piece === piece.toUpperCase()
+        if (isPieceWhite !== byWhite) continue
+        
+        const pieceType = piece.toLowerCase()
+        
+        // Pawn attacks
+        if (pieceType === 'p') {
+          const direction = byWhite ? -1 : 1
+          if (row + direction === kingRow && Math.abs(col - kingCol) === 1) return true
+        }
+        
+        // Knight attacks
+        if (pieceType === 'n') {
+          const dr = Math.abs(row - kingRow)
+          const dc = Math.abs(col - kingCol)
+          if ((dr === 2 && dc === 1) || (dr === 1 && dc === 2)) return true
+        }
+        
+        // King attacks
+        if (pieceType === 'k') {
+          const dr = Math.abs(row - kingRow)
+          const dc = Math.abs(col - kingCol)
+          if (dr <= 1 && dc <= 1) return true
+        }
+        
+        // Rook/Queen horizontal/vertical attacks
+        if (pieceType === 'r' || pieceType === 'q') {
+          if (row === kingRow || col === kingCol) {
+            const rowDir = row === kingRow ? 0 : (kingRow - row) / Math.abs(kingRow - row)
+            const colDir = col === kingCol ? 0 : (kingCol - col) / Math.abs(kingCol - col)
+            let checkRow = row + rowDir
+            let checkCol = col + colDir
+            let blocked = false
+            while (checkRow !== kingRow || checkCol !== kingCol) {
+              if (currentBoard[checkRow][checkCol]) {
+                blocked = true
+                break
+              }
+              checkRow += rowDir
+              checkCol += colDir
+            }
+            if (!blocked) return true
+          }
+        }
+        
+        // Bishop/Queen diagonal attacks
+        if (pieceType === 'b' || pieceType === 'q') {
+          const dr = Math.abs(row - kingRow)
+          const dc = Math.abs(col - kingCol)
+          if (dr === dc && dr > 0) {
+            const rowDir = (kingRow - row) / dr
+            const colDir = (kingCol - col) / dc
+            let checkRow = row + rowDir
+            let checkCol = col + colDir
+            let blocked = false
+            while (checkRow !== kingRow || checkCol !== kingCol) {
+              if (currentBoard[checkRow][checkCol]) {
+                blocked = true
+                break
+              }
+              checkRow += rowDir
+              checkCol += colDir
+            }
+            if (!blocked) return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   // Get legal moves for a selected piece
   const getLegalMoves = (row, col) => {
     try {
       const moves = calculateLegalMoves(row, col, board, lastMove)
+      
+      // Filter out moves that would leave king in check (only in offline/local mode)
+      if (gameId === 'offline-mode' || gameMode === 'local') {
+        const piece = board[row][col]
+        const isWhite = piece === piece.toUpperCase()
+        
+        return moves.filter(move => {
+          // Simulate the move
+          const testBoard = board.map(r => [...r])
+          testBoard[move.row][move.col] = testBoard[row][col]
+          testBoard[row][col] = null
+          
+          // Handle en passant capture
+          if (move.isEnPassant) {
+            testBoard[row][move.col] = null
+          }
+          
+          // Find king position
+          let kingRow, kingCol
+          for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+              const p = testBoard[r][c]
+              if (p && p.toLowerCase() === 'k' && (p === p.toUpperCase()) === isWhite) {
+                kingRow = r
+                kingCol = c
+                break
+              }
+            }
+            if (kingRow !== undefined) break
+          }
+          
+          // Check if king would be in check
+          return !isSquareAttacked(kingRow, kingCol, testBoard, !isWhite)
+        })
+      }
+      
       return moves
     } catch (error) {
       console.error('Error getting legal moves:', error)
