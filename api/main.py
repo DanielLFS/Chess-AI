@@ -47,6 +47,12 @@ game_state = {
 }
 
 
+# Health check endpoint for Railway
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "Chess AI Backend"}
+
+
 # Request/Response models
 class MoveRequest(BaseModel):
     move: str  # UCI format: "e2e4"
