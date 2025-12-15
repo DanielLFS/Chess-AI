@@ -119,9 +119,8 @@ async def make_move(request: MoveRequest):
         promotion = move_str[4] if len(move_str) > 4 else None
         
         # Find legal move
-        # Note: Player inversion needed - without it, returns wrong side's moves
-        inverted_player = 1 - int(board.current_player)
-        legal_moves = generate_legal_moves_numba(board.state, inverted_player)
+        # Note: NO inversion here - we want to validate against current player's actual moves
+        legal_moves = generate_legal_moves_numba(board.state, int(board.current_player))
         move = None
         
         for legal_move in legal_moves:
