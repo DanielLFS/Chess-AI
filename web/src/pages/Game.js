@@ -46,6 +46,24 @@ function Game() {
   const [status, setStatus] = useState('Your move!')
   const [gameId, setGameId] = useState(null)
   const [isThinking, setIsThinking] = useState(false)
+  
+  // Game options
+  const [difficulty, setDifficulty] = useState(4) // Search depth: 1-8
+  const [playerColor, setPlayerColor] = useState('white') // 'white' or 'black'
+  const [showCoordinates, setShowCoordinates] = useState(true)
+  const [showLastMove, setShowLastMove] = useState(true)
+  const [soundEnabled, setSoundEnabled] = useState(true)
+  const [boardTheme, setBoardTheme] = useState('classic') // 'classic', 'blue', 'green', 'purple'
+  const [gameMode, setGameMode] = useState('ai') // 'ai', 'local', 'analysis'
+  
+  // Game state tracking
+  const [moveHistory, setMoveHistory] = useState([])
+  const [capturedPieces, setCapturedPieces] = useState({ white: [], black: [] })
+  const [lastMove, setLastMove] = useState(null)
+  const [evaluation, setEvaluation] = useState(0)
+  const [thinkingTime, setThinkingTime] = useState(0)
+  const [showHint, setShowHint] = useState(false)
+  const [hintMove, setHintMove] = useState(null)
 
   // Initialize a new game
   useEffect(() => {
@@ -62,6 +80,52 @@ function Game() {
     }
     initGame()
   }, [])
+
+  // Helper function to get piece value for captured pieces
+  const getPieceValue = (piece) => {
+    const values = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 }
+    return values[piece.toLowerCase()] || 0
+  }
+
+  // Helper function to play move sound
+  const playMoveSound = () => {
+    if (soundEnabled) {
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSl+zPDTiTQHGGS37OihUhELTKXh8bJiHAU2jdXvyHkpBCF0xe/glEILElyx6OyrWRQLRJzd8sFuIwUme8rx1Ik0BxdhuOzooVIRC0uf3vGxYhwFNYzU77dpKgQgcsXv35RDCxFbr+ftrFkVDECa3PG/bSMFJnrI79GJNAYWXrbs6aJTEwtJoNz');
+      audio.play().catch(() => {}); // Ignore errors
+    }
+  }
+
+  // Get hint from engine
+  const getHint = async () => {
+    if (gameId === 'offline-mode') {
+      setStatus('Hints not available in offline mode')
+      return
+    }
+    try {
+      setStatus('Calculating hint...')
+      const response = await axios.post(`${API_URL}/api/engine`, { depth: difficulty })
+      if (response.data.best_move) {
+        setHintMove(response.data.best_move)
+        setShowHint(true)
+        setStatus('Hint shown! Green square = from, Yellow square = to')
+      }
+    } catch (error) {
+      console.error('Error getting hint:', error)
+      setStatus('Error getting hint')
+    }
+  }
+
+  // Undo last move
+  const undoMove = () => {
+    if (moveHistory.length === 0) return
+    // Remove last 2 moves (player + AI)
+    const newHistory = [...moveHistory]
+    newHistory.pop()
+    if (gameMode === 'ai') newHistory.pop()
+    setMoveHistory(newHistory)
+    // Reset board - would need to replay history or track board states
+    setStatus('Undo not fully implemented yet')
+  }
 
   // Get legal moves for a selected piece
   const getLegalMoves = (row, col) => {
@@ -314,6 +378,8 @@ function Game() {
     try {
       setIsThinking(true)
       setStatus('Making move...')
+      setShowHint(false)
+      setHintMove(null)
       
       const fromSquare = toChessNotation(fromRow, fromCol)
       const toSquare = toChessNotation(toRow, toCol)
@@ -324,12 +390,27 @@ function Game() {
         move: moveStr
       })
       
+      // Track captured piece
+      const capturedPiece = board[toRow][toCol]
+      if (capturedPiece) {
+        const isWhitePiece = capturedPiece === capturedPiece.toUpperCase()
+        setCapturedPieces(prev => ({
+          ...prev,
+          [isWhitePiece ? 'white' : 'black']: [...prev[isWhitePiece ? 'white' : 'black'], capturedPiece]
+        }))
+      }
+      
       // Update board immediately after backend confirms
       const newBoard = [...board.map(row => [...row])]
       const piece = newBoard[fromRow][fromCol]
       newBoard[toRow][toCol] = piece
       newBoard[fromRow][fromCol] = null
       setBoard(newBoard)
+      
+      // Track move history and last move
+      setMoveHistory(prev => [...prev, moveStr])
+      setLastMove({ from: { row: fromRow, col: fromCol }, to: { row: toRow, col: toCol } })
+      playMoveSound()
       
       // Check for game over
       if (response.data.is_checkmate) {
@@ -345,29 +426,56 @@ function Game() {
       
       setStatus('AI is thinking...')
       
-      // Get AI move
-      const aiResponse = await axios.post(`${API_URL}/api/engine`, {
-        depth: 4
-      })
-      
-      if (aiResponse.data.best_move) {
-        const aiMove = aiResponse.data.best_move
-        const from = fromChessNotation(aiMove.substring(0, 2))
-        const to = fromChessNotation(aiMove.substring(2, 4))
-        
-        // Apply AI move to backend first
-        await axios.post(`${API_URL}/api/move`, {
-          move: aiMove
+      // Get AI move (only in AI mode)
+      if (gameMode === 'ai') {
+        const startTime = Date.now()
+        const aiResponse = await axios.post(`${API_URL}/api/engine`, {
+          depth: difficulty
         })
+        const elapsed = Date.now() - startTime
+        setThinkingTime(elapsed)
         
-        // Update board with AI move
-        const aiBoard = [...newBoard.map(row => [...row])]
-        const aiPiece = aiBoard[from.row][from.col]
-        aiBoard[to.row][to.col] = aiPiece
-        aiBoard[from.row][from.col] = null
-        setBoard(aiBoard)
-        
-        setStatus('Your move!')
+        if (aiResponse.data.best_move) {
+          const aiMove = aiResponse.data.best_move
+          const from = fromChessNotation(aiMove.substring(0, 2))
+          const to = fromChessNotation(aiMove.substring(2, 4))
+          
+          // Track AI captured piece
+          const aiCapturedPiece = newBoard[to.row][to.col]
+          if (aiCapturedPiece) {
+            const isWhitePiece = aiCapturedPiece === aiCapturedPiece.toUpperCase()
+            setCapturedPieces(prev => ({
+              ...prev,
+              [isWhitePiece ? 'white' : 'black']: [...prev[isWhitePiece ? 'white' : 'black'], aiCapturedPiece]
+            }))
+          }
+          
+          // Apply AI move to backend first
+          await axios.post(`${API_URL}/api/move`, {
+            move: aiMove
+          })
+          
+          // Update board with AI move
+          const aiBoard = [...newBoard.map(row => [...row])]
+          const aiPiece = aiBoard[from.row][from.col]
+          aiBoard[to.row][to.col] = aiPiece
+          aiBoard[from.row][from.col] = null
+          setBoard(aiBoard)
+          
+          // Track AI move
+          setMoveHistory(prev => [...prev, aiMove])
+          setLastMove({ from, to })
+          playMoveSound()
+          
+          // Update evaluation (score from response if available)
+          if (aiResponse.data.score !== undefined) {
+            setEvaluation(aiResponse.data.score / 100) // Convert centipawns to pawns
+          }
+          
+          setStatus('Your move!')
+        }
+      } else {
+        setStatus(gameMode === 'local' ? 'Other player\'s turn' : 'Your move!')
       }
     } catch (error) {
       console.error('Error making move:', error)
@@ -386,6 +494,51 @@ function Game() {
     return legalMoves.some(move => move.row === row && move.col === col)
   }
 
+  const isLastMove = (row, col) => {
+    if (!showLastMove || !lastMove) return false
+    return (lastMove.from.row === row && lastMove.from.col === col) ||
+           (lastMove.to.row === row && lastMove.to.col === col)
+  }
+
+  const isHintSquare = (row, col) => {
+    if (!showHint || !hintMove) return false
+    const from = fromChessNotation(hintMove.substring(0, 2))
+    const to = fromChessNotation(hintMove.substring(2, 4))
+    return (from.row === row && from.col === col) || (to.row === row && to.col === col)
+  }
+
+  const getThemeColors = () => {
+    const themes = {
+      classic: { light: '#f0d9b5', dark: '#b58863' },
+      blue: { light: '#dee3e6', dark: '#8ca2ad' },
+      green: { light: '#ffffdd', dark: '#86a666' },
+      purple: { light: '#e8d7f1', dark: '#9f7fb8' }
+    }
+    return themes[boardTheme] || themes.classic
+  }
+
+  const resetGame = async () => {
+    setBoard(INITIAL_BOARD)
+    setSelectedSquare(null)
+    setLegalMoves([])
+    setMoveHistory([])
+    setCapturedPieces({ white: [], black: [] })
+    setLastMove(null)
+    setEvaluation(0)
+    setShowHint(false)
+    setHintMove(null)
+    
+    // Reinitialize backend
+    if (gameId !== 'offline-mode') {
+      try {
+        await axios.post(`${API_URL}/api/newgame`)
+        setStatus('Your move!')
+      } catch (error) {
+        console.error('Error resetting game:', error)
+      }
+    }
+  }
+
   return (
     <div className="game-page">
       <div className="game-header">
@@ -393,70 +546,237 @@ function Game() {
           ← Back
         </button>
         <h1>Chess vs AI</h1>
-        <button className="new-game-button" onClick={() => {
-          setBoard(INITIAL_BOARD)
-          setSelectedSquare(null)
-          setLegalMoves([])
-        }}>
+        <button className="new-game-button" onClick={resetGame}>
           New Game
         </button>
       </div>
 
       <div className="game-container">
+        {/* Left sidebar - Game Options */}
+        <div className="options-panel">
+          <div className="options-section">
+            <h3>⚙️ Game Options</h3>
+            
+            <div className="option-group">
+              <label>Difficulty</label>
+              <select value={difficulty} onChange={(e) => setDifficulty(Number(e.target.value))}>
+                <option value={1}>1 - Beginner</option>
+                <option value={2}>2 - Easy</option>
+                <option value={3}>3 - Medium</option>
+                <option value={4}>4 - Normal</option>
+                <option value={5}>5 - Hard</option>
+                <option value={6}>6 - Expert</option>
+                <option value={7}>7 - Master</option>
+                <option value={8}>8 - Grand Master</option>
+              </select>
+            </div>
+
+            <div className="option-group">
+              <label>Game Mode</label>
+              <select value={gameMode} onChange={(e) => setGameMode(e.target.value)}>
+                <option value="ai">vs AI</option>
+                <option value="local">Local 2 Player</option>
+                <option value="analysis">Analysis Mode</option>
+              </select>
+            </div>
+
+            <div className="option-group">
+              <label>Play As</label>
+              <select value={playerColor} onChange={(e) => setPlayerColor(e.target.value)}>
+                <option value="white">White</option>
+                <option value="black">Black</option>
+              </select>
+            </div>
+
+            <div className="option-group">
+              <label>Board Theme</label>
+              <select value={boardTheme} onChange={(e) => setBoardTheme(e.target.value)}>
+                <option value="classic">Classic Brown</option>
+                <option value="blue">Ocean Blue</option>
+                <option value="green">Forest Green</option>
+                <option value="purple">Royal Purple</option>
+              </select>
+            </div>
+
+            <div className="option-group checkbox-group">
+              <label>
+                <input 
+                  type="checkbox" 
+                  checked={showCoordinates} 
+                  onChange={(e) => setShowCoordinates(e.target.checked)}
+                />
+                Show Coordinates
+              </label>
+            </div>
+
+            <div className="option-group checkbox-group">
+              <label>
+                <input 
+                  type="checkbox" 
+                  checked={showLastMove} 
+                  onChange={(e) => setShowLastMove(e.target.checked)}
+                />
+                Highlight Last Move
+              </label>
+            </div>
+
+            <div className="option-group checkbox-group">
+              <label>
+                <input 
+                  type="checkbox" 
+                  checked={soundEnabled} 
+                  onChange={(e) => setSoundEnabled(e.target.checked)}
+                />
+                Sound Effects
+              </label>
+            </div>
+          </div>
+
+          <div className="action-buttons">
+            <button className="action-btn hint-btn" onClick={getHint} disabled={isThinking || gameMode !== 'ai'}>
+              💡 Hint
+            </button>
+            <button className="action-btn undo-btn" onClick={undoMove} disabled={moveHistory.length === 0}>
+              ↶ Undo
+            </button>
+          </div>
+        </div>
+
+        {/* Center - Chessboard */}
         <div className="board-section">
-          <div className="chessboard">
-            {board.map((row, rowIndex) => (
-              row.map((piece, colIndex) => {
-                const isLight = (rowIndex + colIndex) % 2 === 0
-                const selected = isSelected(rowIndex, colIndex)
-                const isLegal = isLegalMove(rowIndex, colIndex)
-                
-                // Allow dragging white pieces since we play as white
-                const isDraggable = piece && piece === piece.toUpperCase()
-                
-                return (
-                  <div
-                    key={`${rowIndex}-${colIndex}`}
-                    className={`square ${isLight ? 'light' : 'dark'} ${selected ? 'selected' : ''} ${isLegal ? 'legal-move' : ''}`}
-                    onClick={() => {
-                      handleSquareClick(rowIndex, colIndex)
-                    }}
-                    onDragOver={handleDragOver}
-                    onDrop={(e) => handleDrop(e, rowIndex, colIndex)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    {piece && (
-                      <span 
-                        className="piece"
-                        draggable={isDraggable}
-                        onDragStart={(e) => handleDragStart(e, rowIndex, colIndex)}
-                        onDragEnd={handleDragEnd}
-                        style={{ cursor: isDraggable ? 'grab' : 'default' }}
-                      >
-                        {PIECES[piece]}
-                      </span>
-                    )}
-                    {isLegal && !piece && (
-                      <div className="move-indicator"></div>
-                    )}
-                    {isLegal && piece && (
-                      <div className="capture-indicator"></div>
-                    )}
-                  </div>
-                )
-              })
-            ))}
+          <div className="board-wrapper">
+            {showCoordinates && (
+              <>
+                <div className="coordinates files">
+                  {['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(file => (
+                    <div key={file} className="coord">{file}</div>
+                  ))}
+                </div>
+                <div className="coordinates ranks">
+                  {[8, 7, 6, 5, 4, 3, 2, 1].map(rank => (
+                    <div key={rank} className="coord">{rank}</div>
+                  ))}
+                </div>
+              </>
+            )}
+            
+            <div 
+              className={`chessboard theme-${boardTheme}`}
+              style={{
+                '--light-square': getThemeColors().light,
+                '--dark-square': getThemeColors().dark
+              }}
+            >
+              {board.map((row, rowIndex) => (
+                row.map((piece, colIndex) => {
+                  const isLight = (rowIndex + colIndex) % 2 === 0
+                  const selected = isSelected(rowIndex, colIndex)
+                  const isLegal = isLegalMove(rowIndex, colIndex)
+                  const isLast = isLastMove(rowIndex, colIndex)
+                  const isHint = isHintSquare(rowIndex, colIndex)
+                  
+                  const isDraggable = piece && piece === piece.toUpperCase()
+                  
+                  return (
+                    <div
+                      key={`${rowIndex}-${colIndex}`}
+                      className={`square ${isLight ? 'light' : 'dark'} ${selected ? 'selected' : ''} ${isLegal ? 'legal-move' : ''} ${isLast ? 'last-move' : ''} ${isHint ? 'hint-square' : ''}`}
+                      onClick={() => handleSquareClick(rowIndex, colIndex)}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, rowIndex, colIndex)}
+                    >
+                      {piece && (
+                        <span 
+                          className="piece"
+                          draggable={isDraggable}
+                          onDragStart={(e) => handleDragStart(e, rowIndex, colIndex)}
+                          onDragEnd={handleDragEnd}
+                        >
+                          {PIECES[piece]}
+                        </span>
+                      )}
+                      {isLegal && !piece && <div className="move-indicator"></div>}
+                      {isLegal && piece && <div className="capture-indicator"></div>}
+                    </div>
+                  )
+                })
+              ))}
+            </div>
           </div>
           
           <div className="status-bar">
             <span>{status}</span>
+            {thinkingTime > 0 && gameMode === 'ai' && (
+              <span className="thinking-time">⏱️ {(thinkingTime / 1000).toFixed(2)}s</span>
+            )}
           </div>
         </div>
 
-        <div className="side-panel">
+        {/* Right sidebar - Game Info */}
+        <div className="info-panel">
           <div className="info-section">
-            <h3>Game Info</h3>
-            <p>Click a piece to select it, then click where to move it.</p>
+            <h3>📊 Evaluation</h3>
+            <div className="eval-bar-container">
+              <div className="eval-bar">
+                <div 
+                  className="eval-fill"
+                  style={{ 
+                    height: `${Math.min(100, Math.max(0, 50 + (evaluation * 5)))}%`
+                  }}
+                ></div>
+              </div>
+              <div className="eval-score">
+                {evaluation > 0 ? '+' : ''}{evaluation.toFixed(1)}
+              </div>
+            </div>
+          </div>
+
+          <div className="info-section">
+            <h3>🎯 Captured Pieces</h3>
+            <div className="captured-section">
+              <div className="captured-group">
+                <span className="captured-label">White:</span>
+                <div className="captured-pieces">
+                  {capturedPieces.white.map((piece, i) => (
+                    <span key={i} className="captured-piece">{PIECES[piece]}</span>
+                  ))}
+                </div>
+              </div>
+              <div className="captured-group">
+                <span className="captured-label">Black:</span>
+                <div className="captured-pieces">
+                  {capturedPieces.black.map((piece, i) => (
+                    <span key={i} className="captured-piece">{PIECES[piece]}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="info-section">
+            <h3>📜 Move History</h3>
+            <div className="move-history">
+              {moveHistory.length === 0 ? (
+                <p className="no-moves">No moves yet</p>
+              ) : (
+                <div className="moves-list">
+                  {moveHistory.reduce((acc, move, i) => {
+                    if (i % 2 === 0) {
+                      acc.push([move])
+                    } else {
+                      acc[acc.length - 1].push(move)
+                    }
+                    return acc
+                  }, []).map((movePair, i) => (
+                    <div key={i} className="move-pair">
+                      <span className="move-number">{i + 1}.</span>
+                      <span className="move">{movePair[0]}</span>
+                      {movePair[1] && <span className="move">{movePair[1]}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
