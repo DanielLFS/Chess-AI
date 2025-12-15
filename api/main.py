@@ -81,12 +81,6 @@ class EngineResponse(BaseModel):
 
 # API Endpoints
 
-@app.get("/")
-async def root():
-    """Health check."""
-    return {"status": "ok", "message": "Chess AI API"}
-
-
 @app.post("/api/newgame", response_model=GameResponse)
 async def new_game():
     """Start a new game."""
