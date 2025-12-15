@@ -491,15 +491,14 @@ function Game() {
       
       // Update board immediately after backend confirms
       const newBoard = [...board.map(row => [...row])]
-      const piece = newBoard[fromRow][fromCol]
-      const isPromotion = (piece === 'P' && toRow === 0) || (piece === 'p' && toRow === 7)
-      const isWhitePiece = piece === piece.toUpperCase()
-      const promotedPiece = isPromotion ? (isWhitePiece ? promotion.toUpperCase() : promotion.toLowerCase()) : piece
+      const movingPiece = newBoard[fromRow][fromCol]
+      const isWhitePiece = movingPiece === movingPiece.toUpperCase()
+      const promotedPiece = isPromotion ? (isWhitePiece ? promotion.toUpperCase() : promotion.toLowerCase()) : movingPiece
       newBoard[toRow][toCol] = promotedPiece
       newBoard[fromRow][fromCol] = null
       
       // Handle en passant - remove the captured pawn
-      if ((piece === 'P' || piece === 'p') && Math.abs(toCol - fromCol) === 1 && !capturedPiece) {
+      if ((movingPiece === 'P' || movingPiece === 'p') && Math.abs(toCol - fromCol) === 1 && !capturedPiece) {
         // This is en passant (diagonal pawn move with no piece at destination)
         const capturedPawnRow = fromRow
         const capturedPawn = newBoard[capturedPawnRow][toCol]
