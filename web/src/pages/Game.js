@@ -140,6 +140,70 @@ function Game() {
     setStatus('Undo not fully implemented yet')
   }
 
+  // Check if the king is in check
+  const isKingInCheck = (currentBoard, forWhite) => {
+    // Find the king
+    let kingRow, kingCol
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const p = currentBoard[r][c]
+        if (p && p.toLowerCase() === 'k' && (p === p.toUpperCase()) === forWhite) {
+          kingRow = r
+          kingCol = c
+          break
+        }
+      }
+      if (kingRow !== undefined) break
+    }
+    
+    return isSquareAttacked(kingRow, kingCol, currentBoard, !forWhite)
+  }
+
+  // Check if a player has any legal moves
+  const checkHasLegalMoves = (currentBoard, forWhite) => {
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const piece = currentBoard[row][col]
+        if (!piece) continue
+        if ((piece === piece.toUpperCase()) !== forWhite) continue
+        
+        // Calculate pseudo-legal moves
+        const pseudoMoves = calculateLegalMoves(row, col, currentBoard, lastMove)
+        
+        // Check if any move is actually legal (doesn't leave king in check)
+        for (const move of pseudoMoves) {
+          const testBoard = currentBoard.map(r => [...r])
+          testBoard[move.row][move.col] = testBoard[row][col]
+          testBoard[row][col] = null
+          
+          // Handle en passant
+          if (move.isEnPassant) {
+            testBoard[row][move.col] = null
+          }
+          
+          // Find king position after move
+          let kingRow, kingCol
+          for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+              const p = testBoard[r][c]
+              if (p && p.toLowerCase() === 'k' && (p === p.toUpperCase()) === forWhite) {
+                kingRow = r
+                kingCol = c
+                break
+              }
+            }
+            if (kingRow !== undefined) break
+          }
+          
+          if (!isSquareAttacked(kingRow, kingCol, testBoard, !forWhite)) {
+            return true // Found at least one legal move
+          }
+        }
+      }
+    }
+    return false // No legal moves found
+  }
+
   // Check if a king is under attack
   const isSquareAttacked = (kingRow, kingCol, currentBoard, byWhite) => {
     // Check all opponent pieces to see if they can attack this square
@@ -595,7 +659,22 @@ function Game() {
         // Switch turns in local multiplayer
         const nextTurn = currentTurn === 'white' ? 'black' : 'white'
         setCurrentTurn(nextTurn)
-        setStatus(`${nextTurn === 'white' ? 'White' : 'Black'} to move`)
+        
+        // Check for checkmate or stalemate
+        const hasLegalMoves = checkHasLegalMoves(newBoard, nextTurn === 'white')
+        const inCheck = isKingInCheck(newBoard, nextTurn === 'white')
+        
+        if (!hasLegalMoves) {
+          if (inCheck) {
+            setStatus(`Checkmate! ${currentTurn === 'white' ? 'White' : 'Black'} wins!`)
+          } else {
+            setStatus('Stalemate - Draw!')
+          }
+        } else if (inCheck) {
+          setStatus(`Check! ${nextTurn === 'white' ? 'White' : 'Black'} to move`)
+        } else {
+          setStatus(`${nextTurn === 'white' ? 'White' : 'Black'} to move`)
+        }
       } else {
         setStatus('Your move! (Offline mode - no AI opponent)')
       }
