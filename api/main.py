@@ -11,8 +11,18 @@ import sys
 import os
 
 # Add backend directory to path for engine imports
-backend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'backend')
-sys.path.insert(0, backend_path)
+# This works whether running from project root or api/ directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+backend_path = os.path.join(os.path.dirname(current_dir), 'backend')
+
+# Also try absolute path from /app if on Railway
+if not os.path.exists(backend_path):
+    backend_path = '/app/backend'
+
+if os.path.exists(backend_path):
+    sys.path.insert(0, backend_path)
+else:
+    raise RuntimeError(f"Cannot find backend directory. Tried: {backend_path}")
 
 from engine.board import Board
 from engine.search import Search
