@@ -279,6 +279,33 @@ function Game() {
           }
         }
       }
+      
+      // Castling
+      // Note: This is a simplified check - doesn't verify if king has moved or is in check
+      // The backend will validate the actual legality
+      if (isWhite && row === 7 && col === 4) {
+        // White kingside castling (e1 to g1)
+        if (currentBoard[7][5] === null && currentBoard[7][6] === null && 
+            currentBoard[7][7] === 'R') {
+          moves.push({ row: 7, col: 6 })
+        }
+        // White queenside castling (e1 to c1)
+        if (currentBoard[7][1] === null && currentBoard[7][2] === null && 
+            currentBoard[7][3] === null && currentBoard[7][0] === 'R') {
+          moves.push({ row: 7, col: 2 })
+        }
+      } else if (!isWhite && row === 0 && col === 4) {
+        // Black kingside castling (e8 to g8)
+        if (currentBoard[0][5] === null && currentBoard[0][6] === null && 
+            currentBoard[0][7] === 'r') {
+          moves.push({ row: 0, col: 6 })
+        }
+        // Black queenside castling (e8 to c8)
+        if (currentBoard[0][1] === null && currentBoard[0][2] === null && 
+            currentBoard[0][3] === null && currentBoard[0][0] === 'r') {
+          moves.push({ row: 0, col: 2 })
+        }
+      }
     }
     
     return moves
@@ -373,6 +400,25 @@ function Game() {
       const piece = newBoard[fromRow][fromCol]
       newBoard[toRow][toCol] = piece
       newBoard[fromRow][fromCol] = null
+      
+      // Handle castling in offline mode
+      if ((piece === 'K' || piece === 'k') && Math.abs(toCol - fromCol) === 2) {
+        // Kingside castling
+        if (toCol > fromCol) {
+          const rookFromCol = 7
+          const rookToCol = toCol - 1
+          newBoard[toRow][rookToCol] = newBoard[toRow][rookFromCol]
+          newBoard[toRow][rookFromCol] = null
+        }
+        // Queenside castling
+        else {
+          const rookFromCol = 0
+          const rookToCol = toCol + 1
+          newBoard[toRow][rookToCol] = newBoard[toRow][rookFromCol]
+          newBoard[toRow][rookFromCol] = null
+        }
+      }
+      
       setBoard(newBoard)
       setStatus('Your move! (Offline mode - no AI opponent)')
       return
@@ -408,6 +454,25 @@ function Game() {
       const piece = newBoard[fromRow][fromCol]
       newBoard[toRow][toCol] = piece
       newBoard[fromRow][fromCol] = null
+      
+      // Handle castling - move the rook as well
+      if ((piece === 'K' || piece === 'k') && Math.abs(toCol - fromCol) === 2) {
+        // Kingside castling
+        if (toCol > fromCol) {
+          const rookFromCol = 7
+          const rookToCol = toCol - 1
+          newBoard[toRow][rookToCol] = newBoard[toRow][rookFromCol]
+          newBoard[toRow][rookFromCol] = null
+        }
+        // Queenside castling
+        else {
+          const rookFromCol = 0
+          const rookToCol = toCol + 1
+          newBoard[toRow][rookToCol] = newBoard[toRow][rookFromCol]
+          newBoard[toRow][rookFromCol] = null
+        }
+      }
+      
       setBoard(newBoard)
       
       // Track move history and last move
@@ -463,6 +528,25 @@ function Game() {
           const aiPiece = aiBoard[from.row][from.col]
           aiBoard[to.row][to.col] = aiPiece
           aiBoard[from.row][from.col] = null
+          
+          // Handle castling for AI - move the rook as well
+          if ((aiPiece === 'K' || aiPiece === 'k') && Math.abs(to.col - from.col) === 2) {
+            // Kingside castling
+            if (to.col > from.col) {
+              const rookFromCol = 7
+              const rookToCol = to.col - 1
+              aiBoard[to.row][rookToCol] = aiBoard[to.row][rookFromCol]
+              aiBoard[to.row][rookFromCol] = null
+            }
+            // Queenside castling
+            else {
+              const rookFromCol = 0
+              const rookToCol = to.col + 1
+              aiBoard[to.row][rookToCol] = aiBoard[to.row][rookFromCol]
+              aiBoard[to.row][rookFromCol] = null
+            }
+          }
+          
           setBoard(aiBoard)
           
           // Track AI move
